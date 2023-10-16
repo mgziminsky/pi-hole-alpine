@@ -52,22 +52,17 @@ VERSION_FILE="/etc/pihole/versions"
 touch "${VERSION_FILE}"
 chmod 644 "${VERSION_FILE}"
 
-# if /pihole.docker.tag file exists, we will use it's value later in this script
-DOCKER_TAG=$(cat /pihole.docker.tag 2>/dev/null)
-regex='^([0-9]+\.){1,2}(\*|[0-9]+)(-.*)?$|(^nightly$)|(^dev.*$)'
-if [[ ! "${DOCKER_TAG}" =~ $regex ]]; then
-  # DOCKER_TAG does not match the pattern (see https://regex101.com/r/RsENuz/1), so unset it.
-  unset DOCKER_TAG
-fi
 
 # used in cronjob
 if [[ "$1" == "reboot" ]]; then
         sleep 30
 fi
 
+# People who had updated may have errors
+# Start with a clean slate
+echo '' > "${VERSION_FILE}"
 
 # get Core versions
-
 CORE_VERSION="$(get_local_version /etc/.pihole)"
 addOrEditKeyValPair "${VERSION_FILE}" "CORE_VERSION" "${CORE_VERSION}"
 
@@ -121,13 +116,3 @@ addOrEditKeyValPair "${VERSION_FILE}" "GITHUB_FTL_VERSION" "${GITHUB_FTL_VERSION
 
 GITHUB_FTL_HASH="$(get_remote_hash FTL "${FTL_BRANCH}")"
 addOrEditKeyValPair "${VERSION_FILE}" "GITHUB_FTL_HASH" "${GITHUB_FTL_HASH}"
-
-
-# get Docker versions
-
-if [[ "${DOCKER_TAG}" ]]; then
-    addOrEditKeyValPair "${VERSION_FILE}" "DOCKER_VERSION" "${DOCKER_TAG}"
-
-    GITHUB_DOCKER_VERSION="$(get_remote_version docker-pi-hole)"
-    addOrEditKeyValPair "${VERSION_FILE}" "GITHUB_DOCKER_VERSION" "${GITHUB_DOCKER_VERSION}"
-fi

@@ -1,20 +1,9 @@
-#!/usr/bin/env sh
-### BEGIN INIT INFO
-# Provides:          pihole-FTL
-# Required-Start:    $remote_fs $syslog $network
-# Required-Stop:     $remote_fs $syslog $network
-# Default-Start:     2 3 4 5
-# Default-Stop:      0 1 6
-# Short-Description: pihole-FTL daemon
-# Description:       Enable service provided by pihole-FTL daemon
-### END INIT INFO
-
-# Source utils.sh for getFTLPIDFile(), getFTLPID()
+#!/sbin/openrc-run
+# Source utils.sh for getFTLPIDFile(), getFTLPID ()
 PI_HOLE_SCRIPT_DIR="/opt/pihole"
 utilsfile="${PI_HOLE_SCRIPT_DIR}/utils.sh"
 # shellcheck disable=SC1090
 . "${utilsfile}"
-
 
 is_running() {
   if [ -d "/proc/${FTL_PID}" ]; then
@@ -28,7 +17,6 @@ cleanup() {
     sh "${PI_HOLE_SCRIPT_DIR}/pihole-FTL-poststop.sh"
 }
 
-
 # Start the service
 start() {
   if is_running; then
@@ -41,7 +29,7 @@ start() {
       su -s /bin/sh -c "/usr/bin/pihole-FTL" pihole
     else
       echo "Warning: Starting pihole-FTL as root because setting capabilities is not supported on this system"
-      /usr/bin/pihole-FTL
+      start-stop-daemon --start --quiet /usr/bin/pihole-FTL
     fi
     rc=$?
     # Cleanup if startup failed
@@ -56,43 +44,19 @@ start() {
 # Stop the service
 stop() {
   if is_running; then
-    kill "${FTL_PID}"
-    for i in 1 2 3 4 5; do
-      if ! is_running; then
-        break
-      fi
-
-      printf "."
-      sleep 1
+    start-stop-daemon --stop --quiet /usr/bin/pihole-FTL
+    while [ "$(pgrep pihole-FTL > /dev/null)" == 0 ]
+    do
+        echo "Waiting for the service to stop"
     done
-    echo
-
-    if is_running; then
-      echo "Not stopped; may still be shutting down or shutdown may have failed, killing now"
-      kill -9 "${FTL_PID}"
-    else
-      echo "Stopped"
-    fi
+    echo "Stopped"
   else
     echo "Not running"
   fi
+  # Run post-stop script, which does cleanup among runtime files
   cleanup
   echo
 }
-
-# Indicate the service status
-status() {
-  if is_running; then
-    echo "[ ok ] pihole-FTL is running"
-    exit 0
-  else
-    echo "[    ] pihole-FTL is not running"
-    exit 1
-  fi
-}
-
-
-### main logic ###
 
 # catch sudden termination
 trap 'cleanup; exit 1' INT HUP TERM ABRT
@@ -103,20 +67,13 @@ FTL_PID_FILE="$(getFTLPIDFile)"
 # Get FTL's current PID
 FTL_PID="$(getFTLPID "${FTL_PID_FILE}")"
 
-case "$1" in
-  stop)
-        stop
-        ;;
-  status)
-        status
-        ;;
-  start|restart|reload|condrestart)
-        stop
-        start
-        ;;
-  *)
-        echo "Usage: $0 {start|stop|restart|reload|status}"
-        exit 1
-esac
-
-exit 0
+# Indicate the service status
+status() {
+  if service_started "${SVCNAME}"; then
+    echo "[ ok ] pihole-FTL is running"
+    exit 0
+  else
+    echo "[    ] pihole-FTL is not running"
+    exit 1
+  fi
+}

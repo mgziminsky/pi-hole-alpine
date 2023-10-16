@@ -144,8 +144,6 @@ PIHOLE_PROCESSES=( "lighttpd" "pihole-FTL" )
 REQUIRED_FILES=("${PIHOLE_CRON_FILE}"
 "${WEB_SERVER_CONFIG_FILE}"
 "${WEB_SERVER_CUSTOM_CONFIG_FILE}"
-"${WEB_SERVER_PIHOLE_CONFIG_FILE_DEBIAN}"
-"${WEB_SERVER_PIHOLE_CONFIG_FILE_FEDORA}"
 "${PIHOLE_INSTALL_LOG_FILE}"
 "${PIHOLE_RAW_BLOCKLIST_FILES}"
 "${PIHOLE_LOCAL_HOSTS_FILE}"
@@ -941,21 +939,10 @@ process_status(){
         else
             # Otherwise, use the service command and mock the output of `systemctl is-active`
             local status_of_process
-
-            # If DOCKER_VERSION is set, the output is slightly different (s6 init system on Docker)
-            if [ -n "${DOCKER_VERSION}" ]; then
-                if service "${i}" status | grep -E '^up' &> /dev/null; then
-                    status_of_process="active"
-                else
-                    status_of_process="inactive"
-                fi
+            if service "${i}" status | grep -E 'is\srunning' &> /dev/null; then
+                status_of_process="active"
             else
-            # non-Docker system
-                if service "${i}" status | grep -E 'is\srunning' &> /dev/null; then
-                    status_of_process="active"
-                else
-                    status_of_process="inactive"
-                fi
+                status_of_process="inactive"
             fi
         fi
         # and print it out to the user
@@ -1174,8 +1161,6 @@ show_content_of_pihole_files() {
     show_content_of_files_in_dir "${PIHOLE_DIRECTORY}"
     show_content_of_files_in_dir "${DNSMASQ_D_DIRECTORY}"
     show_content_of_files_in_dir "${WEB_SERVER_CONFIG_DIRECTORY}"
-    show_content_of_files_in_dir "${WEB_SERVER_CONFIG_DIRECTORY_FEDORA}"
-    show_content_of_files_in_dir "${WEB_SERVER_CONFIG_DIRECTORY_DEBIAN}"
     show_content_of_files_in_dir "${CRON_D_DIRECTORY}"
     show_content_of_files_in_dir "${WEB_SERVER_LOG_DIRECTORY}"
     show_content_of_files_in_dir "${LOG_DIRECTORY}"

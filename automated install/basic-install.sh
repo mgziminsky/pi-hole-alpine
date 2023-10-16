@@ -74,7 +74,7 @@ webroot="/var/www/html"
 # Two notable scripts are gravity.sh (used to generate the HOSTS file) and advanced/Scripts/webpage.sh (used to install the Web admin interface)
 webInterfaceGitUrl="https://github.com/pi-hole/AdminLTE.git"
 webInterfaceDir="${webroot}/admin"
-piholeGitUrl="https://github.com/pi-hole/pi-hole.git"
+piholeGitUrl="https://gitlab.com/yvelon/pi-hole.git"
 PI_HOLE_LOCAL_REPO="/etc/.pihole"
 # List of pihole scripts, stored in an array
 PI_HOLE_FILES=(chronometer list piholeDebug piholeLogFlush setupLCD update version gravity uninstall webpage)
@@ -96,6 +96,15 @@ QUERY_LOGGING=true
 INSTALL_WEB_INTERFACE=true
 PRIVACY_LEVEL=0
 CACHE_SIZE=10000
+
+# When running inside an LXC container, it may be the case that the variable
+# $USER takes as value the user running the container.
+# Since it is not listed under $id, the installation fails.
+# Check $USER is listed in $id, and if not, run the script as root.
+
+if ! grep -q "$USER" <(echo $(id)); then
+	USER=root
+fi
 
 if [ -z "${USER}" ]; then
     USER="$(id -un)"
@@ -174,214 +183,36 @@ is_command() {
 }
 
 os_check() {
-    if [ "$PIHOLE_SKIP_OS_CHECK" != true ]; then
-        # This function gets a list of supported OS versions from a TXT record at versions.pi-hole.net
-        # and determines whether or not the script is running on one of those systems
-        local remote_os_domain valid_os valid_version valid_response detected_os detected_version display_warning cmdResult digReturnCode response
-        remote_os_domain=${OS_CHECK_DOMAIN_NAME:-"versions.pi-hole.net"}
-
-        detected_os=$(grep '^ID=' /etc/os-release | cut -d '=' -f2 | tr -d '"')
+    detected_os=$(grep "\bID\b" /etc/os-release | cut -d '=' -f2 | tr -d '"')
         detected_version=$(grep VERSION_ID /etc/os-release | cut -d '=' -f2 | tr -d '"')
-
-        cmdResult="$(dig +short -t txt "${remote_os_domain}" @ns1.pi-hole.net 2>&1; echo $?)"
-        # Gets the return code of the previous command (last line)
-        digReturnCode="${cmdResult##*$'\n'}"
-
-        if [ ! "${digReturnCode}" == "0" ]; then
-            valid_response=false
-        else
-            # Dig returned 0 (success), so get the actual response, and loop through it to determine if the detected variables above are valid
-            response="${cmdResult%%$'\n'*}"
-            # If the value of ${response} is a single 0, then this is the return code, not an actual response.
-            if [ "${response}" == 0 ]; then
-                valid_response=false
-            fi
-
-            IFS=" " read -r -a supportedOS < <(echo "${response}" | tr -d '"')
-            for distro_and_versions in "${supportedOS[@]}"
-            do
-                distro_part="${distro_and_versions%%=*}"
-                versions_part="${distro_and_versions##*=}"
-
-                # If the distro part is a (case-insensitive) substring of the computer OS
-                if [[ "${detected_os^^}" =~ ${distro_part^^} ]]; then
-                    valid_os=true
-                    IFS="," read -r -a supportedVer <<<"${versions_part}"
-                    for version in "${supportedVer[@]}"
-                    do
-                        if [[ "${detected_version}" =~ $version ]]; then
-                            valid_version=true
-                            break
-                        fi
-                    done
-                    break
-                fi
-            done
-        fi
-
-        if [ "$valid_os" = true ] && [ "$valid_version" = true ] && [ ! "$valid_response" = false ]; then
-            display_warning=false
-        fi
-
-        if [ "$display_warning" != false ]; then
-            if [ "$valid_response" = false ]; then
-
-                if [ "${digReturnCode}" -eq 0 ]; then
-                    errStr="dig succeeded, but response was blank. Please contact support"
-                else
-                    errStr="dig failed with return code ${digReturnCode}"
-                fi
-                printf "  %b %bRetrieval of supported OS list failed. %s. %b\\n" "${CROSS}" "${COL_LIGHT_RED}" "${errStr}" "${COL_NC}"
-                printf "      %bUnable to determine if the detected OS (%s %s) is supported%b\\n" "${COL_LIGHT_RED}" "${detected_os^}" "${detected_version}" "${COL_NC}"
-                printf "      Possible causes for this include:\\n"
-                printf "        - Firewall blocking certain DNS lookups from Pi-hole device\\n"
-                printf "        - ns1.pi-hole.net being blocked (required to obtain TXT record from versions.pi-hole.net containing supported operating systems)\\n"
-                printf "        - Other internet connectivity issues\\n"
-            else
-                printf "  %b %bUnsupported OS detected: %s %s%b\\n" "${CROSS}" "${COL_LIGHT_RED}" "${detected_os^}" "${detected_version}" "${COL_NC}"
-                printf "      If you are seeing this message and you do have a supported OS, please contact support.\\n"
-            fi
-            printf "\\n"
-            printf "      %bhttps://docs.pi-hole.net/main/prerequisites/#supported-operating-systems%b\\n" "${COL_LIGHT_GREEN}" "${COL_NC}"
-            printf "\\n"
-            printf "      If you wish to attempt to continue anyway, you can try one of the following commands to skip this check:\\n"
-            printf "\\n"
-            printf "      e.g: If you are seeing this message on a fresh install, you can run:\\n"
-            printf "             %bcurl -sSL https://install.pi-hole.net | sudo PIHOLE_SKIP_OS_CHECK=true bash%b\\n" "${COL_LIGHT_GREEN}" "${COL_NC}"
-            printf "\\n"
-            printf "           If you are seeing this message after having run pihole -up:\\n"
-            printf "             %bsudo PIHOLE_SKIP_OS_CHECK=true pihole -r%b\\n" "${COL_LIGHT_GREEN}" "${COL_NC}"
-            printf "           (In this case, your previous run of pihole -up will have already updated the local repository)\\n"
-            printf "\\n"
-            printf "      It is possible that the installation will still fail at this stage due to an unsupported configuration.\\n"
-            printf "      If that is the case, you can feel free to ask the community on Discourse with the %bCommunity Help%b category:\\n" "${COL_LIGHT_RED}" "${COL_NC}"
-            printf "      %bhttps://discourse.pi-hole.net/c/bugs-problems-issues/community-help/%b\\n" "${COL_LIGHT_GREEN}" "${COL_NC}"
-            printf "\\n"
+    if ! grep -iq "alpine" <(echo "$detected_os"); then
+        printf "This installer only supports Alpine Linux."
+        printf "If you wish to install pi-hole for ${detected_os}, please refer to https://github.com/pi-hole/pi-hole."
             exit 1
-
-        else
-            printf "  %b %bSupported OS detected%b\\n" "${TICK}" "${COL_LIGHT_GREEN}" "${COL_NC}"
         fi
-    else
-        printf "  %b %bPIHOLE_SKIP_OS_CHECK env variable set to true - installer will continue%b\\n" "${INFO}" "${COL_LIGHT_GREEN}" "${COL_NC}"
-    fi
-}
-
-# This function waits for dpkg to unlock, which signals that the previous apt-get command has finished.
-test_dpkg_lock() {
-    i=0
-    printf "  %b Waiting for package manager to finish (up to 30 seconds)\\n" "${INFO}"
-    # fuser is a program to show which processes use the named files, sockets, or filesystems
-    # So while the lock is held,
-    while fuser /var/lib/dpkg/lock >/dev/null 2>&1
-    do
-        # we wait half a second,
-        sleep 0.5
-        # increase the iterator,
-        ((i=i+1))
-        # exit if waiting for more then 30 seconds
-        if [[ $i -gt 60 ]]; then
-            printf "  %b %bError: Could not verify package manager finished and released lock. %b\\n" "${CROSS}" "${COL_LIGHT_RED}" "${COL_NC}"
-            printf "       Attempt to install packages manually and retry.\\n"
-            exit 1;
-        fi
-    done
-    # and then report success once dpkg is unlocked.
-    return 0
 }
 
 # Compatibility
 package_manager_detect() {
-    # TODO - pull common packages for both distributions out into a common variable, then add
-    # the distro-specific ones below.
-
-    # First check to see if apt-get is installed.
-    if is_command apt-get ; then
-        # Set some global variables here
-        # We don't set them earlier since the installed package manager might be rpm, so these values would be different
-        PKG_MANAGER="apt-get"
-        # A variable to store the command used to update the package cache
+if is_command apk ; then
+    PKG_MANAGER="apk"
         UPDATE_PKG_CACHE="${PKG_MANAGER} update"
-        # The command we will use to actually install packages
-        PKG_INSTALL=("${PKG_MANAGER}" -qq --no-install-recommends install)
-        # grep -c will return 1 if there are no matches. This is an acceptable condition, so we OR TRUE to prevent set -e exiting the script.
-        PKG_COUNT="${PKG_MANAGER} -s -o Debug::NoLocking=true upgrade | grep -c ^Inst || true"
-        # Update package cache
-        update_package_cache || exit 1
-        # Check for and determine version number (major and minor) of current php install
-        local phpVer="php"
-        if is_command php ; then
-            phpVer="$(php <<< "<?php echo PHP_VERSION ?>")"
-            # Check if the first character of the string is numeric
-            if [[ ${phpVer:0:1} =~ [1-9] ]]; then
-                printf "  %b Existing PHP installation detected : PHP version %s\\n" "${INFO}" "${phpVer}"
-                printf -v phpInsMajor "%d" "$(php <<< "<?php echo PHP_MAJOR_VERSION ?>")"
-                printf -v phpInsMinor "%d" "$(php <<< "<?php echo PHP_MINOR_VERSION ?>")"
-                phpVer="php$phpInsMajor.$phpInsMinor"
+    PKG_INSTALL=("${PKG_MANAGER}" add)
+    PKG_COUNT="${PKG_MANAGER} upgrade --simulate --no-progress | head -n -1 | wc -l"
+    INSTALLER_DEPS=(dialog git newt procps dhcpcd openrc ncurses newt git)
+    PIHOLE_DEPS=(curl bind-tools nmap-ncat psmisc sudo unzip wget libidn nettle libcap openresolv iproute2-ss jq)
+    UNBOUND_DEPS=(unbound)
+    # Alpine Linux 3.17.0 deprecated php8, from 3.16.0 php81 is available
+    # Determine the repositories used and select the version accordingly
+    if grep -q "edge\|3.16\|3.17" /etc/apk/repositories; then
+        PIHOLE_WEB_DEPS=(lighttpd lighttpd-mod_auth fcgi php php-cgi php-sqlite3 php-session php-openssl php-json php-fileinfo php-phar php-intl)
             else
-                printf "  %b No valid PHP installation detected!\\n" "${CROSS}"
-                printf "  %b PHP version : %s\\n" "${INFO}" "${phpVer}"
-                printf "  %b Aborting installation.\\n" "${CROSS}"
-                exit 1
+        PIHOLE_WEB_DEPS=(lighttpd lighttpd-mod_auth fcgi php8 php8-cgi php8-sqlite3 php8-session php8-openssl php8-json php8-fileinfo php8-phar php8-intl)
             fi
-        fi
-        # Packages required to perform the os_check (stored as an array)
-        OS_CHECK_DEPS=(grep dnsutils)
-        # Packages required to run this install script (stored as an array)
-        INSTALLER_DEPS=(git iproute2 dialog ca-certificates)
-        # Packages required to run Pi-hole (stored as an array)
-        PIHOLE_DEPS=(cron curl iputils-ping psmisc sudo unzip idn2 libcap2-bin dns-root-data libcap2 netcat-openbsd procps jq)
-        # Packages required for the Web admin interface (stored as an array)
-        # It's useful to separate this from Pi-hole, since the two repos are also setup separately
-        PIHOLE_WEB_DEPS=(lighttpd "${phpVer}-common" "${phpVer}-cgi" "${phpVer}-sqlite3" "${phpVer}-xml" "${phpVer}-intl")
-        # Prior to PHP8.0, JSON functionality is provided as dedicated module, required by Pi-hole AdminLTE: https://www.php.net/manual/json.installation.php
-        if [[ -z "${phpInsMajor}" || "${phpInsMajor}" -lt 8 ]]; then
-            PIHOLE_WEB_DEPS+=("${phpVer}-json")
-        fi
-        # The Web server user,
-        LIGHTTPD_USER="www-data"
-        # group,
-        LIGHTTPD_GROUP="www-data"
-        # and config file
-        LIGHTTPD_CFG="lighttpd.conf.debian"
-
-    # If apt-get is not found, check for rpm.
-    elif is_command rpm ; then
-        # Then check if dnf or yum is the package manager
-        if is_command dnf ; then
-            PKG_MANAGER="dnf"
-        else
-            PKG_MANAGER="yum"
-        fi
-
-        # These variable names match the ones for apt-get. See above for an explanation of what they are for.
-        PKG_INSTALL=("${PKG_MANAGER}" install -y)
-        # CentOS package manager returns 100 when there are packages to update so we need to || true to prevent the script from exiting.
-        PKG_COUNT="${PKG_MANAGER} check-update | grep -E '(.i686|.x86|.noarch|.arm|.src|.riscv64)' | wc -l || true"
-        OS_CHECK_DEPS=(grep bind-utils)
-        INSTALLER_DEPS=(git dialog iproute newt procps-ng chkconfig ca-certificates)
-        PIHOLE_DEPS=(cronie curl findutils sudo unzip libidn2 psmisc libcap nmap-ncat jq)
-        PIHOLE_WEB_DEPS=(lighttpd lighttpd-fastcgi php-common php-cli php-pdo php-xml php-json php-intl)
         LIGHTTPD_USER="lighttpd"
         LIGHTTPD_GROUP="lighttpd"
-        LIGHTTPD_CFG="lighttpd.conf.fedora"
-
-        # If the host OS is centos (or a derivative), epel is required for lighttpd
-        if ! grep -qiE 'fedora|fedberry' /etc/redhat-release; then
-            if rpm -qa | grep -qi 'epel'; then
-                printf "  %b EPEL repository already installed\\n" "${TICK}"
-            else
-                local RH_RELEASE EPEL_PKG
-                # EPEL not already installed, add it based on the release version
-                RH_RELEASE=$(grep -oP '(?<= )[0-9]+(?=\.?)' /etc/redhat-release)
-                EPEL_PKG="https://dl.fedoraproject.org/pub/epel/epel-release-latest-${RH_RELEASE}.noarch.rpm"
-                printf "  %b Enabling EPEL package repository (https://fedoraproject.org/wiki/EPEL)\\n" "${INFO}"
-                "${PKG_INSTALL[@]}" "${EPEL_PKG}"
-                printf "  %b Installed %s\\n" "${TICK}" "${EPEL_PKG}"
-            fi
-        fi
-
-    # If neither apt-get or yum/dnf package managers were found
+    LIGHTTPD_CFG="lighttpd.conf.alpine"
+# If apk package managers was not found
     else
         # we cannot install required packages
         printf "  %b No supported package manager found\\n" "${CROSS}"
@@ -439,10 +270,6 @@ make_repo() {
     # Check current branch. If it is master, then reset to the latest available tag.
     # In case extra commits have been added after tagging/release (i.e in case of metadata updates/README.MD tweaks)
     curBranch=$(git rev-parse --abbrev-ref HEAD)
-    if [[ "${curBranch}" == "master" ]]; then
-        # If we're calling make_repo() then it should always be master, we may not need to check.
-        git reset --hard "$(git describe --abbrev=0 --tags)" || return $?
-    fi
     # Show a colored message showing it's status
     printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
     # Data in the repositories is public anyway so we can make it readable by everyone (+r to keep executable permission if already set by git)
@@ -477,9 +304,6 @@ update_repo() {
     # Check current branch. If it is master, then reset to the latest available tag.
     # In case extra commits have been added after tagging/release (i.e in case of metadata updates/README.MD tweaks)
     curBranch=$(git rev-parse --abbrev-ref HEAD)
-    if [[ "${curBranch}" == "master" ]]; then
-        git reset --hard "$(git describe --abbrev=0 --tags)" || return $?
-    fi
     # Show a completion message
     printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
     # Data in the repositories is public anyway so we can make it readable by everyone (+r to keep executable permission if already set by git)
@@ -889,6 +713,15 @@ valid_ip6() {
     return "${stat}"
 }
 
+# Easy installation of unbound
+installUnbound() {
+    local stat=0
+    dialog --title "Install unbound" --yesno "Do you wish to install unbound? \\n Unbound is a DNS resolver.\\n    It affords greater privacy than using public DNS servers." "${r}" "${c}"
+    stat=$?
+    return "${stat}"
+}
+
+
 # A function to choose the upstream DNS provider(s)
 setDNS() {
     # Local, named variables
@@ -1245,7 +1078,7 @@ version_check_dnsmasq() {
             printf "%b  %b Backing up dnsmasq.conf to dnsmasq.conf.orig...\\n" "${OVER}"  "${TICK}"
             printf "  %b Restoring default dnsmasq.conf..." "${INFO}"
             # and replace it with the default
-            install -D -m 644 -T "${dnsmasq_original_config}" "${dnsmasq_conf}"
+            install -D -m 644 "${dnsmasq_original_config}" "${dnsmasq_conf}"
             printf "%b  %b Restoring default dnsmasq.conf...\\n" "${OVER}"  "${TICK}"
         else
             # Otherwise, don't to anything
@@ -1255,7 +1088,7 @@ version_check_dnsmasq() {
         # If a file cannot be found,
         printf "  %b No dnsmasq.conf found... restoring default dnsmasq.conf..." "${INFO}"
         # restore the default one
-        install -D -m 644 -T "${dnsmasq_original_config}" "${dnsmasq_conf}"
+        install -D -m 644 "${dnsmasq_original_config}" "${dnsmasq_conf}"
         printf "%b  %b No dnsmasq.conf found... restoring default dnsmasq.conf...\\n" "${OVER}"  "${TICK}"
     fi
 
@@ -1265,7 +1098,7 @@ version_check_dnsmasq() {
         install -d -m 755 "/etc/dnsmasq.d"
     fi
     # Copy the new Pi-hole DNS config file into the dnsmasq.d directory
-    install -D -m 644 -T "${dnsmasq_pihole_01_source}" "${dnsmasq_pihole_01_target}"
+    install -D -m 644 "${dnsmasq_pihole_01_source}" "${dnsmasq_pihole_01_target}"
     printf "%b  %b Installed %s\n" "${OVER}"  "${TICK}" "${dnsmasq_pihole_01_target}"
     # Add settings with the GLOBAL DNS variables that we populated earlier
     # First, set the interface to listen on
@@ -1294,7 +1127,7 @@ version_check_dnsmasq() {
     fi
 
     printf "  %b Installing %s..." "${INFO}" "${dnsmasq_rfc6761_06_source}"
-    install -D -m 644 -T "${dnsmasq_rfc6761_06_source}" "${dnsmasq_rfc6761_06_target}"
+    install -D -m 644 "${dnsmasq_rfc6761_06_source}" "${dnsmasq_rfc6761_06_target}"
     printf "%b  %b Installed %s\n" "${OVER}"  "${TICK}" "${dnsmasq_rfc6761_06_target}"
 }
 
@@ -1312,6 +1145,23 @@ clean_existing() {
     for script in "${old_files[@]}"; do
         rm -f "${clean_directory}/${script}.sh"
     done
+}
+
+get_download_url() {
+    local arch=$(uname -m)
+    case "$arch" in
+        x86_64)
+	    download_url="https://gitlab.com/yvelon/pihole-FTL-alpine/-/package_files/84579933/download";;
+        i686)
+	    download_url="https://gitlab.com/yvelon/pihole-FTL-alpine/-/package_files/84579941/download";;
+        armv7l)
+	    download_url="https://gitlab.com/yvelon/pihole-FTL-alpine/-/package_files/84579938/download";;
+	aarch64)
+	    download_url="https://gitlab.com/yvelon/pihole-FTL-alpine/-/package_files/84579936/download";;
+        *)
+            download_url="";;
+   esac
+   echo "$download_url"
 }
 
 # Install the scripts from repository to their various locations
@@ -1365,7 +1215,7 @@ installConfigs() {
     # Install template file if it does not exist
     if [[ ! -r "${FTL_CONFIG_FILE}" ]]; then
         install -d -m 0755 ${PI_HOLE_CONFIG_DIR}
-        if ! install -T -o pihole -m 664 "${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole-FTL.conf" "${FTL_CONFIG_FILE}" &>/dev/null; then
+        if ! install -o pihole -m 664 "${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole-FTL.conf" "${FTL_CONFIG_FILE}" &>/dev/null; then
             printf "  %b Error: Unable to initialize configuration file %s/pihole-FTL.conf\\n" "${COL_LIGHT_RED}" "${PI_HOLE_CONFIG_DIR}"
             return 1
         fi
@@ -1379,24 +1229,9 @@ installConfigs() {
         fi
     fi
 
-    # Install pihole-FTL systemd or init.d service, based on whether systemd is the init system or not
-    # Follow debhelper logic, which checks for /run/systemd/system to derive whether systemd is the init system
-    if [[ -d '/run/systemd/system' ]]; then
-        install -T -m 0644 "${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole-FTL.systemd" '/etc/systemd/system/pihole-FTL.service'
-
-        # Remove init.d service if present
-        if [[ -e '/etc/init.d/pihole-FTL' ]]; then
-            rm '/etc/init.d/pihole-FTL'
-            update-rc.d pihole-FTL remove
-        fi
-
-        # Load final service
-        systemctl daemon-reload
-    else
-        install -T -m 0755 "${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole-FTL.service" '/etc/init.d/pihole-FTL'
-    fi
-    install -T -m 0755 "${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole-FTL-prestart.sh" "${PI_HOLE_INSTALL_DIR}/pihole-FTL-prestart.sh"
-    install -T -m 0755 "${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole-FTL-poststop.sh" "${PI_HOLE_INSTALL_DIR}/pihole-FTL-poststop.sh"
+    # Install pihole-FTL.service
+    install -m 0755 "${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole-FTL.service" "/etc/init.d/pihole-FTL"
+    install -m 0440 "${PI_HOLE_LOCAL_REPO}/advanced/pihole-FTL.sha256" "${PI_HOLE_CONFIG_DIR}/pihole-FTL.sha256"
 
     # If the user chose to install the dashboard,
     if [[ "${INSTALL_WEB_SERVER}" == true ]]; then
@@ -1411,7 +1246,7 @@ installConfigs() {
 
         if grep -q -F "OVERWRITTEN BY PI-HOLE" "${lighttpdConfig}"; then
             # Attempt to preserve backwards compatibility with older versions
-            install -D -m 644 -T ${PI_HOLE_LOCAL_REPO}/advanced/${LIGHTTPD_CFG} "${lighttpdConfig}"
+            install -D -m 644 ${PI_HOLE_LOCAL_REPO}/advanced/${LIGHTTPD_CFG} "${lighttpdConfig}"
             # Make the directories if they do not exist and set the owners
             mkdir -p /var/cache/lighttpd/compress
             chown ${LIGHTTPD_USER}:${LIGHTTPD_GROUP} /var/cache/lighttpd/compress
@@ -1419,8 +1254,8 @@ installConfigs() {
             chown ${LIGHTTPD_USER}:${LIGHTTPD_GROUP} /var/cache/lighttpd/uploads
         fi
         # Copy the config file to include for pihole admin interface
-        if [[ -d "/etc/lighttpd/conf.d" ]]; then
-            install -D -m 644 -T ${PI_HOLE_LOCAL_REPO}/advanced/pihole-admin.conf /etc/lighttpd/conf.d/pihole-admin.conf
+        mkdir -p /etc/lighttpd/conf.d
+        install -D -m 644 ${PI_HOLE_LOCAL_REPO}/advanced/pihole-admin.conf /etc/lighttpd/conf.d/pihole-admin.conf
             if grep -q -F 'include "/etc/lighttpd/conf.d/pihole-admin.conf"' "${lighttpdConfig}"; then
                 :
             else
@@ -1436,39 +1271,6 @@ installConfigs() {
                 echo '# Avoid some warnings trace from lighttpd, which might break tests' >> $conf
                 echo 'server.use-ipv6 := "disable"' >> $conf
             fi
-        elif [[ -d "/etc/lighttpd/conf-available" ]]; then
-            conf=/etc/lighttpd/conf-available/15-pihole-admin.conf
-            install -D -m 644 -T ${PI_HOLE_LOCAL_REPO}/advanced/pihole-admin.conf $conf
-
-            # Get the version number of lighttpd
-            version=$(dpkg-query -f='${Version}\n' --show lighttpd)
-            # Test if that version is greater than or euqal to 1.4.56
-            if dpkg --compare-versions "$version" "ge" "1.4.56"; then
-                # If it is, then we don't need to disable the modules
-                # (server.modules duplication is ignored in lighttpd 1.4.56+)
-                :
-            else
-                # disable server.modules += ( ... ) in $conf to avoid module dups
-                if awk '!/^server\.modules/{print}' $conf > $conf.$$ && mv $conf.$$ $conf; then
-                :
-                else
-                    rm $conf.$$
-                fi
-            fi
-
-            chmod 644 $conf
-            if is_command lighty-enable-mod ; then
-                lighty-enable-mod pihole-admin access accesslog redirect fastcgi setenv > /dev/null || true
-            else
-                # Otherwise, show info about installing them
-                printf "  %b Warning: 'lighty-enable-mod' utility not found\\n" "${INFO}"
-                printf "      Please ensure fastcgi is enabled if you experience issues\\n"
-            fi
-        else
-            # lighttpd config include dir not found
-            printf "  %b Warning: lighttpd config include dir not found\\n" "${INFO}"
-            printf "      Please manually install pihole-admin.conf\\n"
-        fi
     fi
 }
 
@@ -1495,8 +1297,8 @@ install_manpage() {
         install -d -m 755 /usr/local/share/man/man5
     fi
     # Testing complete, copy the files & update the man db
-    install -D -m 644 -T ${PI_HOLE_LOCAL_REPO}/manpages/pihole.8 /usr/local/share/man/man8/pihole.8
-    install -D -m 644 -T ${PI_HOLE_LOCAL_REPO}/manpages/pihole-FTL.8 /usr/local/share/man/man8/pihole-FTL.8
+    install -D -m 644 ${PI_HOLE_LOCAL_REPO}/manpages/pihole.8 /usr/local/share/man/man8/pihole.8
+    install -D -m 644 ${PI_HOLE_LOCAL_REPO}/manpages/pihole-FTL.8 /usr/local/share/man/man8/pihole-FTL.8
 
     # remove previously installed "pihole-FTL.conf.5" man page
     if [[ -f "/usr/local/share/man/man5/pihole-FTL.conf.5" ]]; then
@@ -1554,8 +1356,8 @@ enable_service() {
         # use that to enable the service
         systemctl enable "${1}" &> /dev/null
     else
-        #  Otherwise, use update-rc.d to accomplish this
-        update-rc.d "${1}" defaults &> /dev/null
+        #  Otherwise, use rc-update to accomplish this
+        rc-update add "${1}" &> /dev/null
     fi
     printf "%b  %b %s...\\n" "${OVER}" "${TICK}" "${str}"
 }
@@ -1570,8 +1372,8 @@ disable_service() {
         # use that to disable the service
         systemctl disable "${1}" &> /dev/null
     else
-        # Otherwise, use update-rc.d to accomplish this
-        update-rc.d "${1}" disable &> /dev/null
+        # Otherwise, use rc-update to accomplish this
+        rc-update del "${1}" &> /dev/null
     fi
     printf "%b  %b %s...\\n" "${OVER}" "${TICK}" "${str}"
 }
@@ -1623,12 +1425,6 @@ update_package_cache() {
         printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
     else
         # Otherwise, show an error and exit
-
-        # In case we used apt-get and apt is also available, we use this as recommendation as we have seen it
-        # gives more user-friendly (interactive) advice
-        if [[ ${PKG_MANAGER} == "apt-get" ]] && is_command apt ; then
-            UPDATE_PKG_CACHE="apt update"
-        fi
         printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
         printf "  %b Error: Unable to update package cache. Please try \"%s\"%b\\n" "${COL_LIGHT_RED}" "sudo ${UPDATE_PKG_CACHE}" "${COL_NC}"
         return 1
@@ -1658,59 +1454,34 @@ notify_package_updates_available() {
 }
 
 install_dependent_packages() {
-
     # Install packages passed in via argument array
     # No spinner - conflicts with set -e
     declare -a installArray
 
-    # Debian based package install - debconf will download the entire package list
-    # so we just create an array of packages not currently installed to cut down on the
-    # amount of download traffic.
-    # NOTE: We may be able to use this installArray in the future to create a list of package that were
-    # installed by us, and remove only the installed packages, and not the entire list.
-    if is_command apt-get ; then
         # For each package, check if it's already installed (and if so, don't add it to the installArray)
         for i in "$@"; do
             printf "  %b Checking for %s..." "${INFO}" "${i}"
-            if dpkg-query -W -f='${Status}' "${i}" 2>/dev/null | grep "ok installed" &> /dev/null; then
+            if "${PKG_MANAGER}" info | grep -Eq "^${i}\$" &> /dev/null; then
                 printf "%b  %b Checking for %s\\n" "${OVER}" "${TICK}" "${i}"
             else
                 printf "%b  %b Checking for %s (will be installed)\\n" "${OVER}" "${INFO}" "${i}"
                 installArray+=("${i}")
             fi
         done
+
         # If there's anything to install, install everything in the list.
         if [[ "${#installArray[@]}" -gt 0 ]]; then
-            test_dpkg_lock
-            # Running apt-get install with minimal output can cause some issues with
-            # requiring user input (e.g password for phpmyadmin see #218)
             printf "  %b Processing %s install(s) for: %s, please wait...\\n" "${INFO}" "${PKG_MANAGER}" "${installArray[*]}"
             printf '%*s\n' "${c}" '' | tr " " -;
             "${PKG_INSTALL[@]}" "${installArray[@]}"
             printf '%*s\n' "${c}" '' | tr " " -;
-            return
-        fi
-        printf "\\n"
-        return 0
-    fi
 
-    # Install Fedora/CentOS packages
-    for i in "$@"; do
-        # For each package, check if it's already installed (and if so, don't add it to the installArray)
-        printf "  %b Checking for %s..." "${INFO}" "${i}"
-        if "${PKG_MANAGER}" -q list installed "${i}" &> /dev/null; then
-            printf "%b  %b Checking for %s\\n" "${OVER}" "${TICK}" "${i}"
-        else
-            printf "%b  %b Checking for %s (will be installed)\\n" "${OVER}" "${INFO}" "${i}"
-            installArray+=("${i}")
+        # Initialize openrc if we installed it
+        if [[ "${installArray[*]}" =~ "openrc" ]] && [[ ! -d /run/openrc ]]; then
+            mkdir /run/openrc
+            touch /run/openrc/softlevel
+            openrc
         fi
-    done
-    # If there's anything to install, install everything in the list.
-    if [[ "${#installArray[@]}" -gt 0 ]]; then
-        printf "  %b Processing %s install(s) for: %s, please wait...\\n" "${INFO}" "${PKG_MANAGER}" "${installArray[*]}"
-        printf '%*s\n' "${c}" '' | tr " " -;
-        "${PKG_INSTALL[@]}" "${installArray[@]}"
-        printf '%*s\n' "${c}" '' | tr " " -;
         return
     fi
     printf "\\n"
@@ -1747,7 +1518,7 @@ installCron() {
     printf "\\n  %b %s..." "${INFO}" "${str}"
     # Copy the cron file over from the local repo
     # File must not be world or group writeable and must be owned by root
-    install -D -m 644 -T -o root -g root ${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole.cron /etc/cron.d/pihole
+    install -D -m 644 -o root -g root ${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole.cron /etc/cron.d/pihole
     # Randomize gravity update time
     sed -i "s/59 1 /$((1 + RANDOM % 58)) $((3 + RANDOM % 2))/" /etc/cron.d/pihole
     # Randomize update checker time
@@ -1777,55 +1548,27 @@ create_pihole_user() {
             printf "  %b %s..." "${INFO}" "${str}"
             local str="Creating group 'pihole'"
             # if group can be created
-            if groupadd pihole; then
+            if addgroup pihole pihole; then
                 printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
-                local str="Adding user 'pihole' to group 'pihole'"
+                local str="Creating and adding user 'pihole' to group 'pihole'"
                 printf "  %b %s..." "${INFO}" "${str}"
-                # if pihole user can be added to group pihole
-                if usermod -g pihole pihole; then
-                    printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
-                else
-                    printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
-                fi
-            else
-                printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
             fi
         fi
     else
         # If the pihole user doesn't exist,
         printf "%b  %b %s" "${OVER}" "${CROSS}" "${str}"
-        local str="Checking for group 'pihole'"
-        printf "  %b %s..." "${INFO}" "${str}"
+        local str="Creating user 'pihole'"
+        printf "%b  %b %s..." "${OVER}" "${INFO}" "${str}"
+        # create her with the useradd command,
         if getent group pihole > /dev/null 2>&1; then
-            # group pihole exists
-            printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
-            # then create and add her to the pihole group
-            local str="Creating user 'pihole'"
-            printf "%b  %b %s..." "${OVER}" "${INFO}" "${str}"
-            if useradd -r --no-user-group -g pihole -s /usr/sbin/nologin pihole; then
-                printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
-            else
-                printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
-            fi
+            addgroup -S pihole
+            adduser -S -s /usr/sbin/nologin pihole
+            addgroup pihole pihole
         else
-            # group pihole does not exist
+            addgroup -S pihole
+            adduser -S -s /usr/sbin/nologin pihole
+            addgroup pihole pihole
             printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
-            local str="Creating group 'pihole'"
-            # if group can be created
-            if groupadd pihole; then
-                printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
-                # create and add pihole user to the pihole group
-                local str="Creating user 'pihole'"
-                printf "%b  %b %s..." "${OVER}" "${INFO}" "${str}"
-                if useradd -r --no-user-group -g pihole -s /usr/sbin/nologin pihole; then
-                    printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
-                else
-                    printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
-                fi
-
-            else
-                printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
-            fi
         fi
     fi
 }
@@ -1845,6 +1588,8 @@ finalExports() {
     addOrEditKeyValPair "${setupVars}" "DNS_FQDN_REQUIRED" "${DNS_FQDN_REQUIRED:-true}"
     addOrEditKeyValPair "${setupVars}" "DNS_BOGUS_PRIV" "${DNS_BOGUS_PRIV:-true}"
     addOrEditKeyValPair "${setupVars}" "DNSMASQ_LISTENING" "${DNSMASQ_LISTENING:-local}"
+    addOrEditKeyValPair "${setupVars}" "USER_DOWNLOAD_BINARIES" "${USER_DOWNLOAD_BINARIES:-local}"
+    addOrEditKeyValPair "${setupVars}" "INSTALL_UNBOUND" "${INSTALL_UNBOUND:-local}"
 
     chmod 644 "${setupVars}"
 
@@ -1886,7 +1631,7 @@ installLogrotate() {
         return 2
     fi
     # Copy the file over from the local repo
-    install -D -m 644 -T "${PI_HOLE_LOCAL_REPO}"/advanced/Templates/logrotate ${target}
+    install -D -m 644 "${PI_HOLE_LOCAL_REPO}"/advanced/Templates/logrotate ${target}
     # Different operating systems have different user / group
     # settings for logrotate that makes it impossible to create
     # a static logrotate file that will work with e.g.
@@ -1920,7 +1665,7 @@ installPihole() {
             chmod a+rx ${webroot}
             # Give lighttpd access to the pihole group so the web interface can
             # manage the gravity.db database
-            usermod -a -G pihole ${LIGHTTPD_USER}
+            addgroup ${LIGHTTPD_USER} pihole || true
         fi
     fi
     # Install base files and web interface
@@ -2211,65 +1956,52 @@ FTLinstall() {
     local str="Downloading and Installing FTL"
     printf "  %b %s..." "${INFO}" "${str}"
 
-    # Move into the temp ftl directory
-    pushd "$(mktemp -d)" > /dev/null || { printf "Unable to make temporary directory for FTL binary download\\n"; return 1; }
+    if [[ "${USER_DOWNLOAD_BINARIES}" -eq 0 ]]; then
 
-    local ftlBranch
-    local url
+        compile_ftl
+        # Before stopping FTL, we download the macvendor database
+        curl -ssl "https://ftl.pi-hole.net/macvendor.db" -o "${PI_HOLE_CONFIG_DIR}/macvendor.db" || true
+        chmod 644 "${PI_HOLE_CONFIG_DIR}/macvendor.db"
+        chown pihole:pihole "${PI_HOLE_CONFIG_DIR}/macvendor.db"
 
-    if [[ -f "/etc/pihole/ftlbranch" ]];then
-        ftlBranch=$(</etc/pihole/ftlbranch)
+        # Always replace pihole-FTL.service
+        install -m 0755 "${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole-FTL.service" "/etc/init.d/pihole-FTL"
+
+        # Stop pihole-FTL service if available
+        stop_service pihole-FTL &> /dev/null
+        # Installed the FTL service
+        printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
+
+        return 0
     else
-        ftlBranch="master"
-    fi
+        # Add a temporary entry to resolv.conf
+        echo "1.1.1.1" >> "/etc/resolv.conf"
 
-    local binary
-    binary="${1}"
+        # Move into the temp ftl directory
+        pushd "$(mktemp -d)" > /dev/null || { printf "Unable to make temporary directory for FTL binary download\\n"; return 1; }
 
-    # Determine which version of FTL to download
-    if [[ "${ftlBranch}" == "master" ]];then
-        url="https://github.com/pi-hole/ftl/releases/latest/download"
-    else
-        url="https://ftl.pi-hole.net/${ftlBranch}"
-    fi
+        # Before stopping FTL, we download the macvendor database
+        curl -sSL "https://ftl.pi-hole.net/macvendor.db" -o "${PI_HOLE_CONFIG_DIR}/macvendor.db" || true
+        chmod 644 "${PI_HOLE_CONFIG_DIR}/macvendor.db"
+        chown pihole:pihole "${PI_HOLE_CONFIG_DIR}/macvendor.db"
 
-    if curl -sSL --fail "${url}/${binary}" -o "${binary}"; then
-        # If the download worked, get sha1 of the binary we just downloaded for verification.
-        curl -sSL --fail "${url}/${binary}.sha1" -o "${binary}.sha1"
+        # Stop pihole-FTL service if available
+        stop_service pihole-FTL &> /dev/null
 
-        # If we downloaded binary file (as opposed to text),
-        if sha1sum --status --quiet -c "${binary}".sha1; then
-            printf "transferred... "
+        # Install the new version with the correct permissions
+	curl -sSL "$(get_download_url)" > pihole-FTL
+        install -m 0755 pihole-FTL /usr/bin/pihole-FTL
 
-            # Before stopping FTL, we download the macvendor database
-            curl -sSL "https://ftl.pi-hole.net/macvendor.db" -o "${PI_HOLE_CONFIG_DIR}/macvendor.db" || true
-
-            # Stop pihole-FTL service if available
-            stop_service pihole-FTL &> /dev/null
-
-            # Install the new version with the correct permissions
-            install -T -m 0755 "${binary}" /usr/bin/pihole-FTL
-
-            # Move back into the original directory the user was in
-            popd > /dev/null || { printf "Unable to return to original directory after FTL binary download.\\n"; return 1; }
-
-            # Installed the FTL service
-            printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
-            return 0
-        else
-            # Otherwise, the hash download failed, so print and exit.
-            popd > /dev/null || { printf "Unable to return to original directory after FTL binary download.\\n"; return 1; }
-            printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
-            printf "  %b Error: Download of %s/%s failed (checksum error)%b\\n" "${COL_LIGHT_RED}" "${url}" "${binary}" "${COL_NC}"
-            return 1
-        fi
-    else
-        # Otherwise, the download failed, so print and exit.
+        # Move back into the original directory the user was in
         popd > /dev/null || { printf "Unable to return to original directory after FTL binary download.\\n"; return 1; }
-        printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
-        # The URL could not be found
-        printf "  %b Error: URL %s/%s not found%b\\n" "${COL_LIGHT_RED}" "${url}" "${binary}" "${COL_NC}"
-        return 1
+
+        # Installed the FTL service
+        printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
+
+	# Remove the line we added in
+	sed -i '$d' "/etc/resolv.conf"
+
+        return 0
     fi
 }
 
@@ -2360,6 +2092,12 @@ get_binary_name() {
         if [[ "${dpkgarch}" == "i386" ]]; then
             printf "%b  %b Detected 32bit (i686) processor\\n" "${OVER}" "${TICK}"
             l_binary="pihole-FTL-linux-x86_32"
+        elif ldd /bin/ls | grep -q "ld-musl-x86_64"; then
+            printf "%b  %b Detected musl-x86_64 architecture\\n" "${OVER}" "${TICK}"
+            l_binary="pihole-FTL-musl-linux-x86_64"
+        elif ldd /bin/ls | grep -q "ld-musl-i386"; then
+            printf "%b %b Detected musl-x86_32 architecture\\n" "${OVER}" "${TICK}"
+            l_binary="pihole-compile"
         else
             # 64bit
             printf "%b  %b Detected x86_64 processor\\n" "${OVER}" "${TICK}"
@@ -2392,20 +2130,12 @@ FTLcheckUpdate() {
 
     local ftlLoc
     ftlLoc=$(command -v pihole-FTL 2>/dev/null)
-
-    local ftlBranch
-
-    if [[ -f "/etc/pihole/ftlbranch" ]];then
-        ftlBranch=$(</etc/pihole/ftlbranch)
-    else
-        ftlBranch="master"
+    if [ -z "$ftlLoc" ]; then
+        return 0
     fi
 
     local binary
     binary="${1}"
-
-    local remoteSha1
-    local localSha1
 
     # if dnsmasq exists and is running at this point, force reinstall of FTL Binary
     if is_command dnsmasq; then
@@ -2414,65 +2144,49 @@ FTLcheckUpdate() {
         fi
     fi
 
-    if [[ ! "${ftlBranch}" == "master" ]]; then
-        #Check whether or not the binary for this FTL branch actually exists. If not, then there is no update!
-        local path
-        path="${ftlBranch}/${binary}"
-        # shellcheck disable=SC1090
-        if ! check_download_exists "$path"; then
-            printf "  %b Branch \"%s\" is not available.\\n" "${INFO}" "${ftlBranch}"
-            printf "  %b Use %bpihole checkout ftl [branchname]%b to switch to a valid branch.\\n" "${INFO}" "${COL_LIGHT_GREEN}" "${COL_NC}"
-            return 2
-        fi
-
-        if [[ ${ftlLoc} ]]; then
-            # We already have a pihole-FTL binary downloaded.
-            # Alt branches don't have a tagged version against them, so just confirm the checksum of the local vs remote to decide whether we download or not
-            remoteSha1=$(curl -sSL --fail "https://ftl.pi-hole.net/${ftlBranch}/${binary}.sha1" | cut -d ' ' -f 1)
-            localSha1=$(sha1sum "$(command -v pihole-FTL)" | cut -d ' ' -f 1)
-
-            if [[ "${remoteSha1}" != "${localSha1}" ]]; then
-                printf "  %b Checksums do not match, downloading from ftl.pi-hole.net.\\n" "${INFO}"
-                return 0
-            else
-                printf "  %b Checksum of installed binary matches remote. No need to download!\\n" "${INFO}"
+    if [[ "$USER_DOWNLOAD_BINARIES" == 1 ]]; then
+        local localSha256
+        localSha256=$(sha256sum $ftlLoc | cut -d ' ' -f 1)
+        if grep -q "$localSha256"  "${PI_HOLE_CONFIG_DIR}/pihole-FTL.sha256"; then
                 return 1
-            fi
         else
-            return 0
-        fi
-    else
-        if [[ ${ftlLoc} ]]; then
-            local FTLversion
-            FTLversion=$(/usr/bin/pihole-FTL tag)
-            local FTLlatesttag
-
-            if ! FTLlatesttag=$(curl -sI https://github.com/pi-hole/FTL/releases/latest | grep --color=never -i Location: | awk -F / '{print $NF}' | tr -d '[:cntrl:]'); then
-                # There was an issue while retrieving the latest version
-                printf "  %b Failed to retrieve latest FTL release metadata" "${CROSS}"
-                return 3
-            fi
-
-            if [[ "${FTLversion}" != "${FTLlatesttag}" ]]; then
                 return 0
+        fi
             else
-                printf "  %b Latest FTL Binary already installed (%s). Confirming Checksum...\\n" "${INFO}" "${FTLlatesttag}"
-
-                remoteSha1=$(curl -sSL --fail "https://github.com/pi-hole/FTL/releases/download/${FTLversion%$'\r'}/${binary}.sha1" | cut -d ' ' -f 1)
-                localSha1=$(sha1sum "$(command -v pihole-FTL)" | cut -d ' ' -f 1)
-
-                if [[ "${remoteSha1}" != "${localSha1}" ]]; then
-                    printf "  %b Corruption detected...\\n" "${INFO}"
-                    return 0
-                else
-                    printf "  %b Checksum correct. No need to download!\\n" "${INFO}"
-                    return 1
-                fi
-            fi
+        if grep -q "$(pihole-FTL -v)" "${PI_HOLE_CONFIG_DIR}/pihole-FTL.sha256"; then
+                return 1
         else
             return 0
         fi
-    fi
+            fi
+}
+
+compile_ftl() {
+    # Record the current directory
+    pushd . > /dev/null
+    # Compile phihole-FTL using musl and install pihole under alpine linux
+
+    # Add some basic programs
+    apk add git bash curl sudo
+
+    # Clone the repository that allows compiling pihole-FTL
+    pihole_ftl_musl="https://gitlab.com/yvelon/pihole-FTL-alpine.git"
+    pihole_ftl_musl_dir="pihole-FTL-alpine"
+
+    pushd "$(mktemp -d)" > /dev/null || { printf "Unable to make temporary directory for FTL binary download\\n"; exit; }
+    git clone "$pihole_ftl_musl"
+    cd "$pihole_ftl_musl_dir"
+
+    # Install abuild to Compile
+    apk add abuild
+
+    # Create abuild keys and build pihole-FTL
+    abuild-keygen -a -i
+    abuild -F -r
+
+    build_package=$(find /root -name "pihole-FTL*" | grep packages)
+    apk --allow-untrusted --force-non-repository add "$build_package"
+    popd > /dev/null
 }
 
 # Detect suitable FTL binary platform
@@ -2523,35 +2237,26 @@ main() {
         printf "  %b %s\\n" "${INFO}" "${str}"
         printf "  %b %bScript called with non-root privileges%b\\n" "${INFO}" "${COL_LIGHT_RED}" "${COL_NC}"
         printf "      The Pi-hole requires elevated privileges to install and run\\n"
-        printf "      Please check the installer for any concerns regarding this requirement\\n"
-        printf "      Make sure to download this script from a trusted source\\n\\n"
-        printf "  %b Sudo utility check" "${INFO}"
-
-        # If the sudo command exists, try rerunning as admin
-        if is_command sudo ; then
-            printf "%b  %b Sudo utility check\\n" "${OVER}"  "${TICK}"
-
-            # when run via curl piping
-            if [[ "$0" == "bash" ]]; then
-                # Download the install script and run it with admin rights
-                exec curl -sSL https://raw.githubusercontent.com/pi-hole/pi-hole/master/automated%20install/basic-install.sh | sudo bash "$@"
-            else
-                # when run via calling local bash script
-                exec sudo bash "$0" "$@"
+        printf "      Rerun it as superuser\\n"
+            exit 1
             fi
 
-            exit $?
-        else
-            # Otherwise, tell the user they need to run the script as root, and bail
-            printf "%b  %b Sudo utility check\\n" "${OVER}" "${CROSS}"
-            printf "  %b Sudo is needed for the Web Interface to run pihole commands\\n\\n" "${INFO}"
-            printf "  %b %bPlease re-run this installer as root${COL_NC}\\n" "${INFO}" "${COL_LIGHT_RED}"
-            exit 1
-        fi
-    fi
+    # Check that Alpine is using the edge repositories
+    sed 's/\s//g' /etc/apk/repositories | grep "edge" | grep -Eq "^http" || \
+        (printf "%b  %b Alpine's edge repositories are disabled.\\n" "${OVER}" "${CROSS}" && \
+        printf "  %b Please, enable it by editing /etc/apk/repositories\\n" "${INFO}" && \
+        exit 1)
 
-    # Check if SELinux is Enforcing and exit before doing anything else
-    checkSelinux
+    # Check that Alpine community repository is enabled.
+    # As per https://gitlab.com/yvelon/pi-hole/-/issues/20
+    # it is possible that some user have multiple lines with community, some commented out
+    # and others uncommented.
+    # Fix this by grepping for any line not commented
+    # Just in case, remove any spaces to match beginning of the line
+    sed 's/\s//g' /etc/apk/repositories | grep "community" | grep -Eq "^http" || \
+        (printf "%b  %b Alpine's community repository is disabled.\\n" "${OVER}" "${CROSS}" && \
+        printf "  %b Please, enable it by editing /etc/apk/repositories\\n" "${INFO}" && \
+        exit 1)
 
     # Check for supported package managers so that we may install dependencies
     package_manager_detect
@@ -2596,8 +2301,17 @@ main() {
         chooseInterface
         # find IPv4 and IPv6 information of the device
         collect_v4andv6_information
+	# Decide wheter to install unbound
+	printf "Install unbound: ${INSTALL_UNBOUND}"
+	if (installUnbound); then
+		PIHOLE_DNS_1="127.0.0.1#5335"
+		INSTALL_UNBOUND=0
+	else
         # Decide what upstream DNS Servers to use
+		INSTALL_UNBOUND=1
+		printf "Decided not to install unbound.\n"
         setDNS
+	fi
         # Give the user a choice of blocklists to include in their install. Or not.
         chooseBlocklists
         # Let the user decide if they want the web interface to be installed automatically
@@ -2606,6 +2320,14 @@ main() {
         setLogging
         # Let the user decide the FTL privacy level
         setPrivacyLevel
+        # Download or compile binaries
+        if ( dialog --title "Download pre-compiled pihole-FTL" --defaultno --yesno "Do you wish to download a pre-compiled version of pihole-FTL? \n Compiling it may take some time. However, only download pre-compiled binaries if you trust this repository." 30 80 ); then
+            #YES
+            USER_DOWNLOAD_BINARIES=1
+        else
+            #NO
+            USER_DOWNLOAD_BINARIES=0
+        fi
     else
         # Setup adlist file if not exists
         installDefaultBlocklists
@@ -2631,6 +2353,9 @@ main() {
         # And, if the setting says so, install the Web admin interface dependencies
         dep_install_list+=("${PIHOLE_WEB_DEPS[@]}")
     fi
+    if [[ "${INSTALL_UNBOUND}" == 0 ]]; then
+	dep_install_list+=("${UNBOUND_DEPS[@]}")
+    fi
 
     # Install packages used by the actual software
     printf "  %b Checking for / installing Required dependencies for Pi-hole software...\\n" "${INFO}"
@@ -2641,6 +2366,14 @@ main() {
     # has chosen to install the web interface, else the LIGHTTPD_ENABLED check will fail
     if [[ "${INSTALL_WEB_SERVER}" == true ]]; then
         enable_service lighttpd
+    fi
+    if [[ "${INSTALL_UNBOUND}" -eq 0 ]]; then
+        # Copy unbound configuration
+        install -m 0640 ${PI_HOLE_LOCAL_REPO}/advanced/Templates/unbound.conf /etc/unbound/unbound.conf
+        # Download root.hints
+        wget -S https://www.internic.net/domain/named.cache -O /etc/unbound/root.hints
+        rc-update add unbound
+        rc-service unbound start
     fi
     # Determine if lighttpd is correctly enabled
     if check_service_active "lighttpd"; then
@@ -2682,12 +2415,6 @@ main() {
         fi
     fi
 
-    # Check for and disable systemd-resolved-DNSStubListener before reloading resolved
-    # DNSStubListener needs to remain in place for installer to download needed files,
-    # so this change needs to be made after installation is complete,
-    # but before starting or resarting the dnsmasq or ftl services
-    disable_resolved_stublistener
-
     # If the Web server was installed,
     if [[ "${INSTALL_WEB_SERVER}" == true ]]; then
         if [[ "${LIGHTTPD_ENABLED}" == true ]]; then
@@ -2700,12 +2427,19 @@ main() {
 
     printf "  %b Restarting services...\\n" "${INFO}"
     # Start services
+    # When Alpine is running inside a LXC container, the required
+    # devfs service is not running.
+    # See https://gitlab.com/yvelon/pi-hole/-/issues/2
+    # Start it
+    rc-update add devfs sysinit
+    if ! rc-service devfs status > /dev/null 2>&1; then
+        rc-service devfs start
+    fi
 
     # Enable FTL
     # Ensure the service is enabled before trying to start it
-    # Fixes a problem reported on Ubuntu 18.04 where trying to start
-    # the service before enabling causes installer to exit
-    enable_service pihole-FTL
+    rc-update add pihole-FTL
+    rc-service pihole-FTL start
 
     # If this is an update from a previous Pi-hole installation
     # we need to move any existing `pihole*` logs from `/var/log` to `/var/log/pihole`
@@ -2734,8 +2468,6 @@ main() {
     if [ -f /var/log/pihole.log ] && [ ! -L /var/log/pihole.log ]; then
         mv /var/log/pihole*.* /var/log/pihole/ 2>/dev/null
     fi
-
-    restart_service pihole-FTL
 
     # Download and compile the aggregated block list
     runGravity

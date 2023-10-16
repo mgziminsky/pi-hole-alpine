@@ -52,17 +52,11 @@ if [[ "${INSTALL_WEB_SERVER}" == true ]]; then
 fi
 
 # Compatibility
-if [ -x "$(command -v apt-get)" ]; then
-    # Debian Family
-    PKG_REMOVE=("${PKG_MANAGER}" -y remove --purge)
+if [ -x "$(command -v apk)" ]; then
+    # Alpine Family
+    PKG_REMOVE=("${PKG_MANAGER}" del)
     package_check() {
-        dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -c "ok installed"
-    }
-elif [ -x "$(command -v rpm)" ]; then
-    # Fedora Family
-    PKG_REMOVE=("${PKG_MANAGER}" remove -y)
-    package_check() {
-        rpm -qa | grep "^$1-" > /dev/null
+        apk info | grep "^$1" > /dev/null
     }
 else
     echo -e "  ${CROSS} OS distribution not supported"
@@ -140,29 +134,6 @@ removeNoPurge() {
             ${SUDO} rm /etc/lighttpd/external.conf
         fi
 
-        # Fedora-based
-        if [[ -f /etc/lighttpd/conf.d/pihole-admin.conf ]]; then
-            ${SUDO} rm /etc/lighttpd/conf.d/pihole-admin.conf
-            conf=/etc/lighttpd/lighttpd.conf
-            tconf=/tmp/lighttpd.conf.$$
-            if awk '!/^include "\/etc\/lighttpd\/conf\.d\/pihole-admin\.conf"$/{print}' \
-              $conf > $tconf && mv $tconf $conf; then
-                :
-            else
-                rm $tconf
-            fi
-            ${SUDO} chown root:root $conf
-            ${SUDO} chmod 644 $conf
-        fi
-
-        # Debian-based
-        if [[ -f /etc/lighttpd/conf-available/pihole-admin.conf ]]; then
-            if is_command lighty-disable-mod ; then
-                ${SUDO} lighty-disable-mod pihole-admin > /dev/null || true
-            fi
-            ${SUDO} rm /etc/lighttpd/conf-available/15-pihole-admin.conf
-        fi
-
         echo -e "  ${TICK} Removed lighttpd configs"
     fi
 
@@ -193,18 +164,6 @@ removeNoPurge() {
         else
             service pihole-FTL stop
         fi
-        ${SUDO} rm -f /etc/systemd/system/pihole-FTL.service
-        if [[ -d '/etc/systemd/system/pihole-FTL.service.d' ]]; then
-            read -rp "  ${QST} FTL service override directory /etc/systemd/system/pihole-FTL.service.d detected. Do you wish to remove this from your system? [y/N] " answer
-            case $answer in
-                [yY]*)
-                    echo -ne "  ${INFO} Removing /etc/systemd/system/pihole-FTL.service.d..."
-                    ${SUDO} rm -R /etc/systemd/system/pihole-FTL.service.d
-                    echo -e "${OVER}  ${INFO} Removed /etc/systemd/system/pihole-FTL.service.d"
-                ;;
-                *) echo -e "  ${INFO} Leaving /etc/systemd/system/pihole-FTL.service.d in place.";;
-            esac
-        fi
         ${SUDO} rm -f /etc/init.d/pihole-FTL
         ${SUDO} rm -f /usr/bin/pihole-FTL
         echo -e "${OVER}  ${TICK} Removed pihole-FTL"
@@ -219,7 +178,7 @@ removeNoPurge() {
 
     # If the pihole user exists, then remove
     if id "pihole" &> /dev/null; then
-        if ${SUDO} userdel -r pihole 2> /dev/null; then
+        if ${SUDO} deluser --remove-home pihole 2> /dev/null; then
             echo -e "  ${TICK} Removed 'pihole' user"
         else
             echo -e "  ${CROSS} Unable to remove 'pihole' user"
@@ -227,7 +186,7 @@ removeNoPurge() {
     fi
     # If the pihole group exists, then remove
     if getent group "pihole" &> /dev/null; then
-        if ${SUDO} groupdel pihole 2> /dev/null; then
+        if ${SUDO} delgroup pihole 2> /dev/null; then
             echo -e "  ${TICK} Removed 'pihole' group"
         else
             echo -e "  ${CROSS} Unable to remove 'pihole' group"

@@ -113,9 +113,9 @@ gravity_swap_databases() {
 
   # Swap databases and remove or conditionally rename old database
   # Number of available blocks on disk
-  availableBlocks=$(stat -f --format "%a" "${gravityDIR}")
+  availableBlocks=$(stat -f -c "%a" "${gravityDIR}")
   # Number of blocks, used by gravity.db
-  gravityBlocks=$(stat --format "%b" ${gravityDBfile})
+  gravityBlocks=$(stat -c "%b" ${gravityDBfile})
   # Only keep the old database if available disk space is at least twice the size of the existing gravity.db.
   # Better be safe than sorry...
   oldAvail=false
@@ -485,7 +485,7 @@ compareLists() {
 
   # Verify checksum when an older checksum exists
   if [[ -s "${target}.sha1" ]]; then
-    if ! sha1sum --check --status --strict "${target}.sha1"; then
+    if ! sha1sum -c -s "${target}.sha1"; then
       # The list changed upstream, we need to update the checksum
       sha1sum "${target}" > "${target}.sha1"
       echo "  ${INFO} List has been updated"
@@ -600,6 +600,7 @@ gravity_DownloadBlocklistFromUrl() {
       # Add domains to database table file
       pihole-FTL gravity parseList "${saveLocation}" "${gravityTEMPfile}" "${adlistID}"
       database_adlist_status "${adlistID}" "2"
+      database_adlist_number "${adlistID}"
       done="true"
     # Check if $listCurlBuffer is a non-zero length file
     elif [[ -s "${listCurlBuffer}" ]]; then

@@ -13,7 +13,7 @@
 # Variables
 readonly ADMIN_INTERFACE_GIT_URL="https://github.com/pi-hole/AdminLTE.git"
 readonly ADMIN_INTERFACE_DIR="/var/www/html/admin"
-readonly PI_HOLE_GIT_URL="https://github.com/pi-hole/pi-hole.git"
+readonly PI_HOLE_GIT_URL="https://gitlab.com/yvelon/pi-hole.git"
 readonly PI_HOLE_FILES_DIR="/etc/.pihole"
 
 # shellcheck disable=SC2034
@@ -23,6 +23,7 @@ SKIP_INSTALL=true
 CHECK_ONLY=false
 
 # shellcheck disable=SC1090
+source "/etc/pihole/setupVars.conf" # Retrieve the value for USER_DOWNLOAD_BINARIES
 source "${PI_HOLE_FILES_DIR}/automated install/basic-install.sh"
 # shellcheck disable=SC1091
 source "/opt/pihole/COL_TABLE"
