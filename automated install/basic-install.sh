@@ -74,7 +74,7 @@ webroot="/var/www/html"
 # Two notable scripts are gravity.sh (used to generate the HOSTS file) and advanced/Scripts/webpage.sh (used to install the Web admin interface)
 webInterfaceGitUrl="https://github.com/pi-hole/AdminLTE.git"
 webInterfaceDir="${webroot}/admin"
-piholeGitUrl="https://gitlab.com/yvelon/pi-hole.git"
+piholeGitUrl="https://github.com/mgziminsky/pi-hole-alpine.git"
 PI_HOLE_LOCAL_REPO="/etc/.pihole"
 # List of pihole scripts, stored in an array
 PI_HOLE_FILES=(chronometer list piholeDebug piholeLogFlush setupLCD update version gravity uninstall webpage)
