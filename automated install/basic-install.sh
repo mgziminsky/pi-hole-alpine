@@ -102,8 +102,8 @@ CACHE_SIZE=10000
 # Since it is not listed under $id, the installation fails.
 # Check $USER is listed in $id, and if not, run the script as root.
 
-if ! grep -q "$USER" <(echo $(id)); then
-	USER=root
+if ! grep -q "$USER" <(id); then
+    USER=root
 fi
 
 if [ -z "${USER}" ]; then
@@ -184,35 +184,39 @@ is_command() {
 
 os_check() {
     detected_os=$(grep "\bID\b" /etc/os-release | cut -d '=' -f2 | tr -d '"')
-        detected_version=$(grep VERSION_ID /etc/os-release | cut -d '=' -f2 | tr -d '"')
+    detected_version=$(grep VERSION_ID /etc/os-release | cut -d '=' -f2 | tr -d '"')
     if ! grep -iq "alpine" <(echo "$detected_os"); then
         printf "This installer only supports Alpine Linux."
-        printf "If you wish to install pi-hole for ${detected_os}, please refer to https://github.com/pi-hole/pi-hole."
-            exit 1
-        fi
+        printf "If you wish to install pi-hole for %s, please refer to https://github.com/pi-hole/pi-hole." "$detected_os"
+        exit 1
+    fi
 }
 
 # Compatibility
 package_manager_detect() {
-if is_command apk ; then
-    PKG_MANAGER="apk"
+    if is_command apk ; then
+        PKG_MANAGER="apk"
         UPDATE_PKG_CACHE="${PKG_MANAGER} update"
-    PKG_INSTALL=("${PKG_MANAGER}" add)
-    PKG_COUNT="${PKG_MANAGER} upgrade --simulate --no-progress | head -n -1 | wc -l"
-    INSTALLER_DEPS=(dialog git newt procps dhcpcd openrc ncurses newt git)
-    PIHOLE_DEPS=(curl bind-tools nmap-ncat psmisc sudo unzip wget libidn nettle libcap openresolv iproute2-ss jq)
-    UNBOUND_DEPS=(unbound)
-    # Alpine Linux 3.17.0 deprecated php8, from 3.16.0 php81 is available
-    # Determine the repositories used and select the version accordingly
-    if grep -q "edge\|3.16\|3.17" /etc/apk/repositories; then
-        PIHOLE_WEB_DEPS=(lighttpd lighttpd-mod_auth fcgi php php-cgi php-sqlite3 php-session php-openssl php-json php-fileinfo php-phar php-intl)
-            else
-        PIHOLE_WEB_DEPS=(lighttpd lighttpd-mod_auth fcgi php8 php8-cgi php8-sqlite3 php8-session php8-openssl php8-json php8-fileinfo php8-phar php8-intl)
-            fi
+        PKG_INSTALL=("${PKG_MANAGER}" add)
+        PKG_COUNT="${PKG_MANAGER} upgrade --simulate --no-progress | head -n -1 | wc -l"
+        INSTALLER_DEPS=(dialog git newt procps-ng openrc ncurses)
+        PIHOLE_DEPS=(curl bind-tools nmap-ncat psmisc sudo unzip wget libidn nettle libcap openresolv iproute2-ss jq)
+        UNBOUND_DEPS=(unbound)
+        PIHOLE_WEB_DEPS=(lighttpd lighttpd-mod_auth fcgi)
+
+        # Select appropriate php version based on alpine release
+        read -r RELEASE < /etc/alpine-release
+        if [ "$RELEASE" \< "3.16" ]; then
+            PIHOLE_WEB_DEPS+=(php8 php8-cgi php8-sqlite3 php8-session php8-openssl php8-json php8-fileinfo php8-phar php8-intl)
+        elif [ "$RELEASE" \< "3.18" ]; then
+            PIHOLE_WEB_DEPS+=(php81 php81-cgi php81-sqlite3 php81-session php81-openssl php81-json php81-fileinfo php81-phar php81-intl)
+        else
+            PIHOLE_WEB_DEPS+=(php82 php82-cgi php82-sqlite3 php82-session php82-openssl php82-json php82-fileinfo php82-phar php82-intl)
+        fi
         LIGHTTPD_USER="lighttpd"
         LIGHTTPD_GROUP="lighttpd"
-    LIGHTTPD_CFG="lighttpd.conf.alpine"
-# If apk package managers was not found
+        LIGHTTPD_CFG="lighttpd.conf.alpine"
+    # If apk package managers was not found
     else
         # we cannot install required packages
         printf "  %b No supported package manager found\\n" "${CROSS}"
@@ -423,12 +427,12 @@ Depending on your operating system, there are many ways to achieve this, through
 Please continue when the static addressing has been configured."\
             "${r}" "${c}" && result=0 || result="$?"
 
-         case "${result}" in
-             "${DIALOG_CANCEL}" | "${DIALOG_ESC}")
+        case "${result}" in
+            "${DIALOG_CANCEL}" | "${DIALOG_ESC}")
                 printf "  %b Installer exited at static IP message.\\n" "${INFO}"
                 exit 1
                 ;;
-         esac
+        esac
 }
 
 # A function that lets the user pick an interface to use with Pi-hole
@@ -645,8 +649,8 @@ It is also possible to use a DHCP reservation, but if you are going to do that, 
                     "${r}" "${c}" && ipSettingsCorrect=True
             done
             ;;
-       esac
-       setDHCPCD
+        esac
+        setDHCPCD
 }
 
 # Configure networking via dhcpcd
@@ -1070,7 +1074,7 @@ version_check_dnsmasq() {
         printf "  %b Existing dnsmasq.conf found..." "${INFO}"
         # If a specific string is found within this file, we presume it's from older versions on Pi-hole,
         if grep -q "${dnsmasq_pihole_id_string}" "${dnsmasq_conf}" ||
-           grep -q "${dnsmasq_pihole_id_string2}" "${dnsmasq_conf}"; then
+            grep -q "${dnsmasq_pihole_id_string2}" "${dnsmasq_conf}"; then
             printf " it is from a previous Pi-hole install.\\n"
             printf "  %b Backing up dnsmasq.conf to dnsmasq.conf.orig..." "${INFO}"
             # so backup the original file,
@@ -1151,17 +1155,17 @@ get_download_url() {
     local arch=$(uname -m)
     case "$arch" in
         x86_64)
-	    download_url="https://gitlab.com/yvelon/pihole-FTL-alpine/-/package_files/84579933/download";;
+            download_url="https://github.com/pi-hole/FTL/releases/download/v5.23/pihole-FTL-musl-linux-x86_64";;
         i686)
-	    download_url="https://gitlab.com/yvelon/pihole-FTL-alpine/-/package_files/84579941/download";;
+            download_url="https://gitlab.com/yvelon/pihole-FTL-alpine/-/package_files/84579941/download";;
         armv7l)
-	    download_url="https://gitlab.com/yvelon/pihole-FTL-alpine/-/package_files/84579938/download";;
-	aarch64)
-	    download_url="https://gitlab.com/yvelon/pihole-FTL-alpine/-/package_files/84579936/download";;
+            download_url="https://gitlab.com/yvelon/pihole-FTL-alpine/-/package_files/84579938/download";;
+        aarch64)
+            download_url="https://gitlab.com/yvelon/pihole-FTL-alpine/-/package_files/84579936/download";;
         *)
             download_url="";;
-   esac
-   echo "$download_url"
+    esac
+    echo "$download_url"
 }
 
 # Install the scripts from repository to their various locations
@@ -1256,21 +1260,21 @@ installConfigs() {
         # Copy the config file to include for pihole admin interface
         mkdir -p /etc/lighttpd/conf.d
         install -D -m 644 ${PI_HOLE_LOCAL_REPO}/advanced/pihole-admin.conf /etc/lighttpd/conf.d/pihole-admin.conf
-            if grep -q -F 'include "/etc/lighttpd/conf.d/pihole-admin.conf"' "${lighttpdConfig}"; then
-                :
-            else
-                echo 'include "/etc/lighttpd/conf.d/pihole-admin.conf"' >> "${lighttpdConfig}"
-            fi
-            # Avoid some warnings trace from lighttpd, which might break tests
-            conf=/etc/lighttpd/conf.d/pihole-admin.conf
-            if lighttpd -f "${lighttpdConfig}" -tt 2>&1 | grep -q -F "WARNING: unknown config-key: dir-listing\."; then
-                echo '# Avoid some warnings trace from lighttpd, which might break tests' >> $conf
-                echo 'server.modules += ( "mod_dirlisting" )' >> $conf
-            fi
-            if lighttpd -f "${lighttpdConfig}" -tt 2>&1 | grep -q -F "warning: please use server.use-ipv6"; then
-                echo '# Avoid some warnings trace from lighttpd, which might break tests' >> $conf
-                echo 'server.use-ipv6 := "disable"' >> $conf
-            fi
+        if grep -q -F 'include "/etc/lighttpd/conf.d/pihole-admin.conf"' "${lighttpdConfig}"; then
+            :
+        else
+            echo 'include "/etc/lighttpd/conf.d/pihole-admin.conf"' >> "${lighttpdConfig}"
+        fi
+        # Avoid some warnings trace from lighttpd, which might break tests
+        conf=/etc/lighttpd/conf.d/pihole-admin.conf
+        if lighttpd -f "${lighttpdConfig}" -tt 2>&1 | grep -q -F "WARNING: unknown config-key: dir-listing\."; then
+            echo '# Avoid some warnings trace from lighttpd, which might break tests' >> $conf
+            echo 'server.modules += ( "mod_dirlisting" )' >> $conf
+        fi
+        if lighttpd -f "${lighttpdConfig}" -tt 2>&1 | grep -q -F "warning: please use server.use-ipv6"; then
+            echo '# Avoid some warnings trace from lighttpd, which might break tests' >> $conf
+            echo 'server.use-ipv6 := "disable"' >> $conf
+        fi
     fi
 }
 
@@ -1461,7 +1465,7 @@ install_dependent_packages() {
         # For each package, check if it's already installed (and if so, don't add it to the installArray)
         for i in "$@"; do
             printf "  %b Checking for %s..." "${INFO}" "${i}"
-            if "${PKG_MANAGER}" info | grep -Eq "^${i}\$" &> /dev/null; then
+            if "${PKG_MANAGER}" info -e "${i}" &> /dev/null; then
                 printf "%b  %b Checking for %s\\n" "${OVER}" "${TICK}" "${i}"
             else
                 printf "%b  %b Checking for %s (will be installed)\\n" "${OVER}" "${INFO}" "${i}"
@@ -1548,28 +1552,23 @@ create_pihole_user() {
             printf "  %b %s..." "${INFO}" "${str}"
             local str="Creating group 'pihole'"
             # if group can be created
-            if addgroup pihole pihole; then
+            if addgroup -S pihole; then
                 printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
-                local str="Creating and adding user 'pihole' to group 'pihole'"
+                local str="Adding user 'pihole' to group 'pihole'"
                 printf "  %b %s..." "${INFO}" "${str}"
+                addgroup pihole pihole
             fi
         fi
     else
         # If the pihole user doesn't exist,
         printf "%b  %b %s" "${OVER}" "${CROSS}" "${str}"
-        local str="Creating user 'pihole'"
-        printf "%b  %b %s..." "${OVER}" "${INFO}" "${str}"
-        # create her with the useradd command,
-        if getent group pihole > /dev/null 2>&1; then
+        local str="Checking for group 'pihole'"
+        printf "  %b %s..." "${INFO}" "${str}"
+        if ! getent group pihole > /dev/null 2>&1; then
             addgroup -S pihole
-            adduser -S -s /usr/sbin/nologin pihole
-            addgroup pihole pihole
-        else
-            addgroup -S pihole
-            adduser -S -s /usr/sbin/nologin pihole
-            addgroup pihole pihole
-            printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
-        fi
+                printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
+            fi
+        adduser -SH -s /usr/sbin/nologin -G pihole pihole
     fi
 }
 
@@ -1956,23 +1955,19 @@ FTLinstall() {
     local str="Downloading and Installing FTL"
     printf "  %b %s..." "${INFO}" "${str}"
 
-    if [[ "${USER_DOWNLOAD_BINARIES}" -eq 0 ]]; then
+    # Before stopping FTL, we download the macvendor database
+    curl -ssl "https://ftl.pi-hole.net/macvendor.db" -o "${PI_HOLE_CONFIG_DIR}/macvendor.db" || true
+    chmod 644 "${PI_HOLE_CONFIG_DIR}/macvendor.db"
+    chown pihole:pihole "${PI_HOLE_CONFIG_DIR}/macvendor.db"
 
+    if [[ "${USER_DOWNLOAD_BINARIES}" -eq 0 ]]; then
         compile_ftl
-        # Before stopping FTL, we download the macvendor database
-        curl -ssl "https://ftl.pi-hole.net/macvendor.db" -o "${PI_HOLE_CONFIG_DIR}/macvendor.db" || true
-        chmod 644 "${PI_HOLE_CONFIG_DIR}/macvendor.db"
-        chown pihole:pihole "${PI_HOLE_CONFIG_DIR}/macvendor.db"
 
         # Always replace pihole-FTL.service
         install -m 0755 "${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole-FTL.service" "/etc/init.d/pihole-FTL"
 
         # Stop pihole-FTL service if available
         stop_service pihole-FTL &> /dev/null
-        # Installed the FTL service
-        printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
-
-        return 0
     else
         # Add a temporary entry to resolv.conf
         echo "1.1.1.1" >> "/etc/resolv.conf"
@@ -1980,29 +1975,22 @@ FTLinstall() {
         # Move into the temp ftl directory
         pushd "$(mktemp -d)" > /dev/null || { printf "Unable to make temporary directory for FTL binary download\\n"; return 1; }
 
-        # Before stopping FTL, we download the macvendor database
-        curl -sSL "https://ftl.pi-hole.net/macvendor.db" -o "${PI_HOLE_CONFIG_DIR}/macvendor.db" || true
-        chmod 644 "${PI_HOLE_CONFIG_DIR}/macvendor.db"
-        chown pihole:pihole "${PI_HOLE_CONFIG_DIR}/macvendor.db"
-
         # Stop pihole-FTL service if available
         stop_service pihole-FTL &> /dev/null
 
-        # Install the new version with the correct permissions
-	curl -sSL "$(get_download_url)" > pihole-FTL
+            # Install the new version with the correct permissions
+        curl -sSL "$(get_download_url)" > pihole-FTL
         install -m 0755 pihole-FTL /usr/bin/pihole-FTL
 
         # Move back into the original directory the user was in
         popd > /dev/null || { printf "Unable to return to original directory after FTL binary download.\\n"; return 1; }
 
-        # Installed the FTL service
-        printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
-
-	# Remove the line we added in
-	sed -i '$d' "/etc/resolv.conf"
-
-        return 0
+        # Remove the line we added in
+        sed -i '$d' "/etc/resolv.conf"
     fi
+    # Installed the FTL service
+    printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
+    return 0
 }
 
 disable_dnsmasq() {
@@ -2238,14 +2226,11 @@ main() {
         printf "  %b %bScript called with non-root privileges%b\\n" "${INFO}" "${COL_LIGHT_RED}" "${COL_NC}"
         printf "      The Pi-hole requires elevated privileges to install and run\\n"
         printf "      Rerun it as superuser\\n"
-            exit 1
-            fi
+        exit 1
+    fi
 
-    # Check that Alpine is using the edge repositories
-    sed 's/\s//g' /etc/apk/repositories | grep "edge" | grep -Eq "^http" || \
-        (printf "%b  %b Alpine's edge repositories are disabled.\\n" "${OVER}" "${CROSS}" && \
-        printf "  %b Please, enable it by editing /etc/apk/repositories\\n" "${INFO}" && \
-        exit 1)
+    # Check that the installed OS is officially supported - display warning if not
+    os_check
 
     # Check that Alpine community repository is enabled.
     # As per https://gitlab.com/yvelon/pi-hole/-/issues/20
@@ -2267,9 +2252,6 @@ main() {
     # Install packages necessary to perform os_check
     printf "  %b Checking for / installing Required dependencies for OS Check...\\n" "${INFO}"
     install_dependent_packages "${OS_CHECK_DEPS[@]}"
-
-    # Check that the installed OS is officially supported - display warning if not
-    os_check
 
     # Install packages used by this installation script
     printf "  %b Checking for / installing Required dependencies for this install script...\\n" "${INFO}"
@@ -2301,17 +2283,17 @@ main() {
         chooseInterface
         # find IPv4 and IPv6 information of the device
         collect_v4andv6_information
-	# Decide wheter to install unbound
-	printf "Install unbound: ${INSTALL_UNBOUND}"
-	if (installUnbound); then
-		PIHOLE_DNS_1="127.0.0.1#5335"
-		INSTALL_UNBOUND=0
-	else
-        # Decide what upstream DNS Servers to use
-		INSTALL_UNBOUND=1
-		printf "Decided not to install unbound.\n"
-        setDNS
-	fi
+        # Decide wheter to install unbound
+        printf "Install unbound: %s" "${INSTALL_UNBOUND}"
+        if (installUnbound); then
+            PIHOLE_DNS_1="127.0.0.1#5335"
+            INSTALL_UNBOUND=0
+        else
+            # Decide what upstream DNS Servers to use
+            INSTALL_UNBOUND=1
+            printf "Decided not to install unbound.\n"
+            setDNS
+        fi
         # Give the user a choice of blocklists to include in their install. Or not.
         chooseBlocklists
         # Let the user decide if they want the web interface to be installed automatically
@@ -2354,7 +2336,7 @@ main() {
         dep_install_list+=("${PIHOLE_WEB_DEPS[@]}")
     fi
     if [[ "${INSTALL_UNBOUND}" == 0 ]]; then
-	dep_install_list+=("${UNBOUND_DEPS[@]}")
+        dep_install_list+=("${UNBOUND_DEPS[@]}")
     fi
 
     # Install packages used by the actual software
