@@ -8,6 +8,7 @@
 # This file is copyright under the latest version of the EUPL.
 # Please see LICENSE file for your rights under this license.
 
+# shellcheck source=advanced/Scripts/COL_TABLE
 source "/opt/pihole/COL_TABLE"
 
 while true; do
@@ -36,9 +37,11 @@ else
 fi
 
 readonly PI_HOLE_FILES_DIR="/etc/.pihole"
+# shellcheck disable=SC2034
 SKIP_INSTALL="true"
 source "${PI_HOLE_FILES_DIR}/automated install/basic-install.sh"
 # setupVars set in basic-install.sh
+# shellcheck disable=SC1090 disable=SC2154
 source "${setupVars}"
 
 # package_manager_detect() sourced from basic-install.sh
@@ -63,6 +66,12 @@ elif [ -x "$(command -v rpm)" ]; then
     PKG_REMOVE=("${PKG_MANAGER}" remove -y)
     package_check() {
         rpm -qa | grep "^$1-" > /dev/null
+    }
+elif [ -x "$(command -v apk)" ]; then
+    # Alpine Family
+    PKG_REMOVE=("${PKG_MANAGER}" del)
+    package_check() {
+        apk info -qe "$1" > /dev/null
     }
 else
     echo -e "  ${CROSS} OS distribution not supported"

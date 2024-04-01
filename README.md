@@ -11,8 +11,35 @@
     <br>
     <strong>Network-wide ad blocking via your own Linux hardware</strong>
 </p>
-
 <!-- markdownlint-enable MD033 -->
+
+  This is a proper fork of the official pi-hole repo started from applying only the code fixes in [yvelon/pi-hole](https://gitlab.com/yvelon/pi-hole) to make updating and maintainence simpler.
+
+  **Alpine version: x86, x86_64, armv7l and aarch64**: This repository provides an automated script to install Pi-hole on Alpine Linux (32-bit and 64-bit) working with musl.
+
+   **Information about Pi-hole**: please check out the [Pi-hole official repository](https://github.com/pi-hole/pi-hole).
+
+-----
+
+## Important note
+
+This script runs exclusively on Alpine Linux.
+If you wish to install Pi-hole on another distribution, please refer to [Pi-hole's official installation](https://github.com/pi-hole/pi-hole)
+
+## Installing on Alpine Linux
+
+1. Prior to running, install `bash` and `git`: `apk add bash git`
+2. Enable the _community_ repository by editing `/etc/apk/repositories`
+3. Clone the current repository: `git clone https://github.com/mgziminsky/pi-hole-alpine.git`
+4. `cd pi-hole-alpine` to the cloned folder
+5. Execute the script `bash 'automated install/basic-install.sh'`
+6. During install, the user is prompted to select whether to download a precompiled binary or compile it locally.
+    Local compilation may be slow on some devices.
+    Only select downloading precompiled binaries if you trust this repository.
+    In that case, be sure to select `yes` when prompted because the default action implies local compilation.
+
+-----
+-----
 
 The Pi-hole® is a [DNS sinkhole](https://en.wikipedia.org/wiki/DNS_Sinkhole) that protects your devices from unwanted content without installing any client-side software.
 

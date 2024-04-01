@@ -13,7 +13,7 @@
 # Variables
 readonly ADMIN_INTERFACE_GIT_URL="https://github.com/pi-hole/web.git"
 readonly ADMIN_INTERFACE_DIR="/var/www/html/admin"
-readonly PI_HOLE_GIT_URL="https://github.com/pi-hole/pi-hole.git"
+readonly PI_HOLE_GIT_URL="https://github.com/mgziminsky/pi-hole-alpine.git"
 readonly PI_HOLE_FILES_DIR="/etc/.pihole"
 
 # shellcheck disable=SC2034
@@ -22,9 +22,8 @@ SKIP_INSTALL=true
 # when --check-only is passed to this script, it will not perform the actual update
 CHECK_ONLY=false
 
-# shellcheck disable=SC1090
 source "${PI_HOLE_FILES_DIR}/automated install/basic-install.sh"
-# shellcheck disable=SC1091
+# shellcheck source=advanced/Scripts/COL_TABLE
 source "/opt/pihole/COL_TABLE"
 
 # is_repo() sourced from basic-install.sh

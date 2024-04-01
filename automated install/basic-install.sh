@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC1090
 
 # Pi-hole: A black hole for Internet advertisements
 # (c) Pi-hole (https://pi-hole.net)
@@ -74,7 +73,7 @@ webroot="/var/www/html"
 # Two notable scripts are gravity.sh (used to generate the HOSTS file) and advanced/Scripts/webpage.sh (used to install the Web admin interface)
 webInterfaceGitUrl="https://github.com/pi-hole/web.git"
 webInterfaceDir="${webroot}/admin"
-piholeGitUrl="https://github.com/pi-hole/pi-hole.git"
+piholeGitUrl="https://github.com/mgziminsky/pi-hole-alpine.git"
 PI_HOLE_LOCAL_REPO="/etc/.pihole"
 # List of pihole scripts, stored in an array
 PI_HOLE_FILES=(chronometer list piholeDebug piholeLogFlush setupLCD update version gravity uninstall webpage)
@@ -123,6 +122,7 @@ done
 # If the color table file exists,
 if [[ -f "${coltable}" ]]; then
     # source it
+    # shellcheck source=advanced/Scripts/COL_TABLE
     source "${coltable}"
 # Otherwise,
 else
@@ -182,6 +182,16 @@ os_check() {
 
         detected_os=$(grep '^ID=' /etc/os-release | cut -d '=' -f2 | tr -d '"')
         detected_version=$(grep VERSION_ID /etc/os-release | cut -d '=' -f2 | tr -d '"')
+
+        if [[ "$detected_os" =~ "alpine" ]]; then
+            # Check that Alpine community repository is enabled.
+            if ! (grep -Ev "^\s*#" /etc/apk/repositories | grep -qF "/community"); then
+                printf "%b  %b Alpine's community repository is disabled.\\n" "${OVER}" "${CROSS}" && \
+                printf "  %b Please, enable it by editing /etc/apk/repositories\\n" "${INFO}" && \
+                exit 1
+            fi
+            return 0
+        fi
 
         cmdResult="$(dig +short -t txt "${remote_os_domain}" @ns1.pi-hole.net 2>&1; echo $?)"
         # Gets the return code of the previous command (last line)
@@ -381,7 +391,20 @@ package_manager_detect() {
             fi
         fi
 
-    # If neither apt-get or yum/dnf package managers were found
+    # If neither apt-get or yum/dnf package managers were found, check for apk.
+    elif is_command apk ; then
+        PKG_MANAGER="apk"
+        UPDATE_PKG_CACHE="${PKG_MANAGER} update"
+        PKG_INSTALL=("${PKG_MANAGER}" add)
+        PKG_COUNT="${PKG_MANAGER} list --upgradable -q | wc -l"
+        INSTALLER_DEPS=(git dialog newt procps-ng openrc ncurses coreutils shadow)
+        PIHOLE_DEPS=(bind-tools cronie curl psmisc sudo unzip libidn libcap iproute2-ss nmap-ncat jq)
+        PIHOLE_WEB_DEPS=(lighttpd lighttpd-mod_auth php-common php-cgi php-fileinfo php-openssl php-phar php-session php-sqlite3 php-xml php-intl)
+
+        LIGHTTPD_USER="lighttpd"
+        LIGHTTPD_GROUP="lighttpd"
+        LIGHTTPD_CFG="lighttpd.conf.alpine"
+    # If apk package manager was not found
     else
         # we cannot install required packages
         printf "  %b No supported package manager found\\n" "${CROSS}"
@@ -599,12 +622,12 @@ Depending on your operating system, there are many ways to achieve this, through
 Please continue when the static addressing has been configured."\
             "${r}" "${c}" && result=0 || result="$?"
 
-         case "${result}" in
-             "${DIALOG_CANCEL}" | "${DIALOG_ESC}")
+        case "${result}" in
+            "${DIALOG_CANCEL}" | "${DIALOG_ESC}")
                 printf "  %b Installer exited at static IP message.\\n" "${INFO}"
                 exit 1
                 ;;
-         esac
+        esac
 }
 
 # A function that lets the user pick an interface to use with Pi-hole
@@ -821,8 +844,8 @@ It is also possible to use a DHCP reservation, but if you are going to do that, 
                     "${r}" "${c}" && ipSettingsCorrect=True
             done
             ;;
-       esac
-       setDHCPCD
+        esac
+        setDHCPCD
 }
 
 # Configure networking via dhcpcd
@@ -968,6 +991,7 @@ If you want to specify a port other than 53, separate it with a hash.\
             esac
 
             # Clean user input and replace whitespace with comma.
+            # shellcheck disable=SC2001
             piholeDNS=$(sed 's/[, \t]\+/,/g' <<< "${piholeDNS}")
 
             # Separate the user input into the two DNS values (separated by a comma)
@@ -1237,7 +1261,7 @@ version_check_dnsmasq() {
         printf "  %b Existing dnsmasq.conf found..." "${INFO}"
         # If a specific string is found within this file, we presume it's from older versions on Pi-hole,
         if grep -q "${dnsmasq_pihole_id_string}" "${dnsmasq_conf}" ||
-           grep -q "${dnsmasq_pihole_id_string2}" "${dnsmasq_conf}"; then
+            grep -q "${dnsmasq_pihole_id_string2}" "${dnsmasq_conf}"; then
             printf " it is from a previous Pi-hole install.\\n"
             printf "  %b Backing up dnsmasq.conf to dnsmasq.conf.orig..." "${INFO}"
             # so backup the original file,
@@ -1392,6 +1416,8 @@ installConfigs() {
 
         # Load final service
         systemctl daemon-reload
+    elif is_command openrc; then
+        install -T -m 0755 "${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole-FTL.openrc" "/etc/init.d/pihole-FTL"
     else
         install -T -m 0755 "${PI_HOLE_LOCAL_REPO}/advanced/Templates/pihole-FTL.service" '/etc/init.d/pihole-FTL'
     fi
@@ -1419,15 +1445,15 @@ installConfigs() {
             chown ${LIGHTTPD_USER}:${LIGHTTPD_GROUP} /var/cache/lighttpd/uploads
         fi
         # Copy the config file to include for pihole admin interface
-        if [[ -d "/etc/lighttpd/conf.d" ]]; then
-            install -D -m 644 -T ${PI_HOLE_LOCAL_REPO}/advanced/pihole-admin.conf /etc/lighttpd/conf.d/pihole-admin.conf
-            if grep -q -F 'include "/etc/lighttpd/conf.d/pihole-admin.conf"' "${lighttpdConfig}"; then
+        if [[ -d "/etc/lighttpd/conf.d" ]] || is_command apk; then
+            conf=/etc/lighttpd/conf.d/pihole-admin.conf
+            install -D -m 644 -T ${PI_HOLE_LOCAL_REPO}/advanced/pihole-admin.conf $conf
+            if grep -q -F "include \"$conf\"" "${lighttpdConfig}"; then
                 :
             else
-                echo 'include "/etc/lighttpd/conf.d/pihole-admin.conf"' >> "${lighttpdConfig}"
+                echo "include \"$conf\"" >> "${lighttpdConfig}"
             fi
             # Avoid some warnings trace from lighttpd, which might break tests
-            conf=/etc/lighttpd/conf.d/pihole-admin.conf
             if lighttpd -f "${lighttpdConfig}" -tt 2>&1 | grep -q -F "WARNING: unknown config-key: dir-listing\."; then
                 echo '# Avoid some warnings trace from lighttpd, which might break tests' >> $conf
                 echo 'server.modules += ( "mod_dirlisting" )' >> $conf
@@ -1553,6 +1579,9 @@ enable_service() {
     if is_command systemctl ; then
         # use that to enable the service
         systemctl enable "${1}" &> /dev/null
+    elif is_command openrc; then
+        # use rc-update
+        rc-update add "${1}" "${2:-default}" &> /dev/null
     else
         #  Otherwise, use update-rc.d to accomplish this
         update-rc.d "${1}" defaults &> /dev/null
@@ -1569,6 +1598,9 @@ disable_service() {
     if is_command systemctl ; then
         # use that to disable the service
         systemctl disable "${1}" &> /dev/null
+    elif is_command openrc; then
+        # use rc-update
+        rc-update del "${1}" "${2:-default}" &> /dev/null
     else
         # Otherwise, use update-rc.d to accomplish this
         update-rc.d "${1}" disable &> /dev/null
@@ -1581,6 +1613,8 @@ check_service_active() {
     if is_command systemctl ; then
         # use that to check the status of the service
         systemctl is-enabled "${1}" &> /dev/null
+    elif is_command openrc; then
+        rc-status default boot | grep -q "${1}"
     else
         # Otherwise, fall back to service command
         service "${1}" status &> /dev/null
@@ -1658,7 +1692,6 @@ notify_package_updates_available() {
 }
 
 install_dependent_packages() {
-
     # Install packages passed in via argument array
     # No spinner - conflicts with set -e
     declare -a installArray
@@ -1679,6 +1712,7 @@ install_dependent_packages() {
                 installArray+=("${i}")
             fi
         done
+
         # If there's anything to install, install everything in the list.
         if [[ "${#installArray[@]}" -gt 0 ]]; then
             test_dpkg_lock
@@ -1688,6 +1722,52 @@ install_dependent_packages() {
             printf '%*s\n' "${c}" '' | tr " " -;
             "${PKG_INSTALL[@]}" "${installArray[@]}"
             printf '%*s\n' "${c}" '' | tr " " -;
+            return
+        fi
+        printf "\\n"
+        return 0
+    fi
+
+    # Install Alpine packages
+    if is_command apk ; then
+        # For each package, check if it's already installed (and if so, don't add it to the installArray)
+        for i in "$@"; do
+            printf "  %b Checking for %s..." "${INFO}" "${i}"
+            if "${PKG_MANAGER}" info -e "${i}" &> /dev/null; then
+                printf "%b  %b Checking for %s\\n" "${OVER}" "${TICK}" "${i}"
+            else
+                printf "%b  %b Checking for %s (will be installed)\\n" "${OVER}" "${INFO}" "${i}"
+                installArray+=("${i}")
+            fi
+        done
+
+        # If there's anything to install, install everything in the list.
+        if [[ "${#installArray[@]}" -gt 0 ]]; then
+            printf "  %b Processing %s install(s) for: %s, please wait...\\n" "${INFO}" "${PKG_MANAGER}" "${installArray[*]}"
+            printf '%*s\n' "${c}" '' | tr " " -;
+            "${PKG_INSTALL[@]}" "${installArray[@]}"
+            printf '%*s\n' "${c}" '' | tr " " -;
+
+            # Initialize openrc if we installed it
+            if [[ "${installArray[*]}" =~ "openrc" ]] && [[ ! -d /run/openrc ]]; then
+                mkdir /run/openrc
+                touch /run/openrc/softlevel
+                openrc
+
+                # When Alpine is running inside a LXC container, the required devfs may not be running.
+                # See https://gitlab.com/yvelon/pi-hole/-/issues/2
+                enable_service devfs boot
+                service devfs start
+            fi
+
+            if [[ "${installArray[*]}" =~ "cronie" ]]; then
+                # Switch from busybox crond to cronie
+                disable_service crond || true
+                stop_service crond
+                enable_service cronie || true
+                restart_service cronie
+            fi
+
             return
         fi
         printf "\\n"
@@ -1852,6 +1932,7 @@ finalExports() {
     addOrEditKeyValPair "${FTL_CONFIG_FILE}" "PRIVACYLEVEL" "${PRIVACY_LEVEL}"
 
     # Bring in the current settings and the functions to manipulate them
+    # shellcheck disable=SC1090
     source "${setupVars}"
     # shellcheck source=advanced/Scripts/webpage.sh
     source "${PI_HOLE_LOCAL_REPO}/advanced/Scripts/webpage.sh"
@@ -2215,7 +2296,6 @@ FTLinstall() {
     pushd "$(mktemp -d)" > /dev/null || { printf "Unable to make temporary directory for FTL binary download\\n"; return 1; }
 
     local ftlBranch
-    local url
 
     if [[ -f "/etc/pihole/ftlbranch" ]];then
         ftlBranch=$(</etc/pihole/ftlbranch)
@@ -2223,8 +2303,7 @@ FTLinstall() {
         ftlBranch="master"
     fi
 
-    local binary
-    binary="${1}"
+    local binary="${1}"
 
     # Determine which version of FTL to download
     if [[ "${ftlBranch}" == "master" ]];then
@@ -2263,14 +2342,14 @@ FTLinstall() {
             printf "  %b Error: Download of %s/%s failed (checksum error)%b\\n" "${COL_LIGHT_RED}" "${url}" "${binary}" "${COL_NC}"
             return 1
         fi
-    else
-        # Otherwise, the download failed, so print and exit.
-        popd > /dev/null || { printf "Unable to return to original directory after FTL binary download.\\n"; return 1; }
-        printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
-        # The URL could not be found
-        printf "  %b Error: URL %s/%s not found%b\\n" "${COL_LIGHT_RED}" "${url}" "${binary}" "${COL_NC}"
-        return 1
     fi
+
+    # Otherwise, the download failed, so print and exit.
+    popd > /dev/null || { printf "Unable to return to original directory after FTL binary download.\\n"; return 1; }
+    printf "%b  %b %s\\n" "${OVER}" "${CROSS}" "${str}"
+    # The URL could not be found
+    printf "  %b Error: URL %s/%s not found%b\\n" "${COL_LIGHT_RED}" "${url}" "${binary}" "${COL_NC}"
+    return 1
 }
 
 disable_dnsmasq() {
@@ -2311,11 +2390,11 @@ get_binary_name() {
         rev=$(uname -m | sed "s/[^0-9]//g;")
         local lib
         lib=$(ldd "$(command -v sh)" | grep -E '^\s*/lib' | awk '{ print $1 }')
-        if [[ "${lib}" == "/lib/ld-linux-aarch64.so.1" ]]; then
+        if [[ "${lib}" == *"-aarch64.so."* ]]; then
             printf "%b  %b Detected AArch64 (64 Bit ARM) processor\\n" "${OVER}" "${TICK}"
             # set the binary to be used
             l_binary="pihole-FTL-aarch64-linux-gnu"
-        elif [[ "${lib}" == "/lib/ld-linux-armhf.so.3" ]]; then
+        elif [[ "${lib}" == *"-armhf.so."* ]]; then
             # Hard-float available: Use gnueabihf binaries
             # If ARMv8 or higher is found (e.g., BCM2837 as found in Raspberry Pi Model 3B)
             if [[ "${rev}" -gt 7 ]]; then
@@ -2374,15 +2453,24 @@ get_binary_name() {
         if [[ ! "${machine}" == "i686" ]]; then
             printf "%b  %b %s...\\n" "${OVER}" "${CROSS}" "${str}"
             printf "  %b %bNot able to detect processor (unknown: %s), trying x86 (32bit) executable%b\\n" "${INFO}" "${COL_LIGHT_RED}" "${machine}" "${COL_NC}"
-            printf "  %b Contact Pi-hole Support if you experience issues (e.g: FTL not running)\\n" "${INFO}"
         else
             printf "%b  %b Detected 32bit (i686) processor\\n" "${OVER}" "${TICK}"
         fi
         l_binary="pihole-FTL-linux-x86_32"
     fi
 
+    if ldd "$(command -v sh)" | grep -q musl; then
+        musl="${l_binary/%gnu*/musl}"
+        [ "$l_binary" != "$musl" ] || musl="${l_binary/FTL-linux-x86/FTL-musl-linux-x86}"
+        if [ "$l_binary" != "$musl" ]; then
+            l_binary="$musl"
+        else
+            unset l_binary
+        fi
+    fi
+
     # Returning a string value via echo
-    echo ${l_binary}
+    echo "${l_binary}"
 }
 
 FTLcheckUpdate() {
@@ -2534,7 +2622,7 @@ main() {
             # when run via curl piping
             if [[ "$0" == "bash" ]]; then
                 # Download the install script and run it with admin rights
-                exec curl -sSL https://raw.githubusercontent.com/pi-hole/pi-hole/master/automated%20install/basic-install.sh | sudo bash "$@"
+                exec curl -sSL https://raw.githubusercontent.com/mgziminsky/pi-hole-alpine/master/automated%20install/basic-install.sh | sudo bash "$@"
             else
                 # when run via calling local bash script
                 exec sudo bash "$0" "$@"
@@ -2611,6 +2699,7 @@ main() {
         installDefaultBlocklists
 
         # Source ${setupVars} to use predefined user variables in the functions
+        # shellcheck disable=SC1090
         source "${setupVars}"
 
         # Get the privacy level if it exists (default is 0)
