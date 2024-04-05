@@ -53,10 +53,20 @@ Cloudflare (DNSSEC);1.1.1.1;1.0.0.1;2606:4700:4700::1111;2606:4700:4700::1001
 EOM
 )
 
+declare -a INSTALLED
+
+# This directory is where the Pi-hole scripts will be installed
+PI_HOLE_INSTALL_DIR="/opt/pihole"
+PI_HOLE_CONFIG_DIR="/etc/pihole"
+PI_HOLE_LOCAL_REPO="/etc/.pihole"
+PI_HOLE_BIN_DIR="/usr/local/bin"
+
 # Location for final installation log storage
-installLogLoc="/etc/pihole/install.log"
+installLogLoc="${PI_HOLE_CONFIG_DIR}/install.log"
 # This is an important file as it contains information specific to the machine it's being installed on
-setupVars="/etc/pihole/setupVars.conf"
+setupVars="${PI_HOLE_CONFIG_DIR}/setupVars.conf"
+# File listing the packages installed by this script
+pkgsFile="${PI_HOLE_CONFIG_DIR}/setup-installed.list"
 # Pi-hole uses lighttpd as a Web server, and this is the config file for it
 lighttpdConfig="/etc/lighttpd/lighttpd.conf"
 # This is a file used for the colorized output
@@ -74,19 +84,14 @@ webroot="/var/www/html"
 webInterfaceGitUrl="https://github.com/pi-hole/web.git"
 webInterfaceDir="${webroot}/admin"
 piholeGitUrl="https://github.com/mgziminsky/pi-hole-alpine.git"
-PI_HOLE_LOCAL_REPO="/etc/.pihole"
 # List of pihole scripts, stored in an array
 PI_HOLE_FILES=(chronometer list piholeDebug piholeLogFlush setupLCD update version gravity uninstall webpage)
-# This directory is where the Pi-hole scripts will be installed
-PI_HOLE_INSTALL_DIR="/opt/pihole"
-PI_HOLE_CONFIG_DIR="/etc/pihole"
-PI_HOLE_BIN_DIR="/usr/local/bin"
 FTL_CONFIG_FILE="${PI_HOLE_CONFIG_DIR}/pihole-FTL.conf"
 if [ -z "$useUpdateVars" ]; then
     useUpdateVars=false
 fi
 
-adlistFile="/etc/pihole/adlists.list"
+adlistFile="${PI_HOLE_CONFIG_DIR}/adlists.list"
 # Pi-hole needs an IP address; to begin, these variables are empty since we don't know what the IP is until this script can run
 IPV4_ADDRESS=${IPV4_ADDRESS}
 IPV6_ADDRESS=${IPV6_ADDRESS}
@@ -1248,7 +1253,7 @@ version_check_dnsmasq() {
     # Local, named variables
     local dnsmasq_conf="/etc/dnsmasq.conf"
     local dnsmasq_conf_orig="/etc/dnsmasq.conf.orig"
-    local dnsmasq_pihole_id_string="addn-hosts=/etc/pihole/gravity.list"
+    local dnsmasq_pihole_id_string="addn-hosts=${PI_HOLE_CONFIG_DIR}/gravity.list"
     local dnsmasq_pihole_id_string2="# Dnsmasq config for Pi-hole's FTLDNS"
     local dnsmasq_original_config="${PI_HOLE_LOCAL_REPO}/advanced/dnsmasq.conf.original"
     local dnsmasq_pihole_01_source="${PI_HOLE_LOCAL_REPO}/advanced/01-pihole.conf"
@@ -1385,6 +1390,10 @@ installConfigs() {
     # Some values may be empty (for example: DNS servers without IPv6 support)
     echo "${DNS_SERVERS}" > "${PI_HOLE_CONFIG_DIR}/dns-servers.conf"
     chmod 644 "${PI_HOLE_CONFIG_DIR}/dns-servers.conf"
+
+    # Save or update the list of packages installed by this script
+    [[ $useUpdateVars == false ]] && rm -f "${pkgsFile}"
+    printf "%s\n" "${INSTALLED[@]}" >> "${pkgsFile}"
 
     # Install template file if it does not exist
     if [[ ! -r "${FTL_CONFIG_FILE}" ]]; then
@@ -1722,18 +1731,13 @@ install_dependent_packages() {
             printf '%*s\n' "${c}" '' | tr " " -;
             "${PKG_INSTALL[@]}" "${installArray[@]}"
             printf '%*s\n' "${c}" '' | tr " " -;
-            return
         fi
-        printf "\\n"
-        return 0
-    fi
-
     # Install Alpine packages
-    if is_command apk ; then
+    elif is_command apk ; then
         # For each package, check if it's already installed (and if so, don't add it to the installArray)
         for i in "$@"; do
             printf "  %b Checking for %s..." "${INFO}" "${i}"
-            if "${PKG_MANAGER}" info -e "${i}" &> /dev/null; then
+            if "${PKG_MANAGER}" info -qe "${i}"; then
                 printf "%b  %b Checking for %s\\n" "${OVER}" "${TICK}" "${i}"
             else
                 printf "%b  %b Checking for %s (will be installed)\\n" "${OVER}" "${INFO}" "${i}"
@@ -1767,32 +1771,31 @@ install_dependent_packages() {
                 enable_service cronie || true
                 restart_service cronie
             fi
-
+        fi
+    # Install Fedora/CentOS packages
+    else
+        for i in "$@"; do
+            # For each package, check if it's already installed (and if so, don't add it to the installArray)
+            printf "  %b Checking for %s..." "${INFO}" "${i}"
+            if "${PKG_MANAGER}" -q list installed "${i}" &> /dev/null; then
+                printf "%b  %b Checking for %s\\n" "${OVER}" "${TICK}" "${i}"
+            else
+                printf "%b  %b Checking for %s (will be installed)\\n" "${OVER}" "${INFO}" "${i}"
+                installArray+=("${i}")
+            fi
+        done
+        # If there's anything to install, install everything in the list.
+        if [[ "${#installArray[@]}" -gt 0 ]]; then
+            printf "  %b Processing %s install(s) for: %s, please wait...\\n" "${INFO}" "${PKG_MANAGER}" "${installArray[*]}"
+            printf '%*s\n' "${c}" '' | tr " " -;
+            "${PKG_INSTALL[@]}" "${installArray[@]}"
+            printf '%*s\n' "${c}" '' | tr " " -;
             return
         fi
-        printf "\\n"
-        return 0
     fi
 
-    # Install Fedora/CentOS packages
-    for i in "$@"; do
-        # For each package, check if it's already installed (and if so, don't add it to the installArray)
-        printf "  %b Checking for %s..." "${INFO}" "${i}"
-        if "${PKG_MANAGER}" -q list installed "${i}" &> /dev/null; then
-            printf "%b  %b Checking for %s\\n" "${OVER}" "${TICK}" "${i}"
-        else
-            printf "%b  %b Checking for %s (will be installed)\\n" "${OVER}" "${INFO}" "${i}"
-            installArray+=("${i}")
-        fi
-    done
-    # If there's anything to install, install everything in the list.
-    if [[ "${#installArray[@]}" -gt 0 ]]; then
-        printf "  %b Processing %s install(s) for: %s, please wait...\\n" "${INFO}" "${PKG_MANAGER}" "${installArray[*]}"
-        printf '%*s\n' "${c}" '' | tr " " -;
-        "${PKG_INSTALL[@]}" "${installArray[@]}"
-        printf '%*s\n' "${c}" '' | tr " " -;
-        return
-    fi
+    INSTALLED+=("${installArray[@]}")
+
     printf "\\n"
     return 0
 }
@@ -1947,7 +1950,7 @@ finalExports() {
 # Install the logrotate script
 installLogrotate() {
     local str="Installing latest logrotate script"
-    local target=/etc/pihole/logrotate
+    local target=${PI_HOLE_CONFIG_DIR}/logrotate
 
     printf "\\n  %b %s..." "${INFO}" "${str}"
     if [[ -f ${target} ]]; then
@@ -2297,8 +2300,8 @@ FTLinstall() {
 
     local ftlBranch
 
-    if [[ -f "/etc/pihole/ftlbranch" ]];then
-        ftlBranch=$(</etc/pihole/ftlbranch)
+    if [[ -f "${PI_HOLE_CONFIG_DIR}/ftlbranch" ]];then
+        ftlBranch=$(<${PI_HOLE_CONFIG_DIR}/ftlbranch)
     else
         ftlBranch="master"
     fi
@@ -2483,8 +2486,8 @@ FTLcheckUpdate() {
 
     local ftlBranch
 
-    if [[ -f "/etc/pihole/ftlbranch" ]];then
-        ftlBranch=$(</etc/pihole/ftlbranch)
+    if [[ -f "${PI_HOLE_CONFIG_DIR}/ftlbranch" ]];then
+        ftlBranch=$(<${PI_HOLE_CONFIG_DIR}/ftlbranch)
     else
         ftlBranch="master"
     fi
@@ -2677,7 +2680,7 @@ main() {
         # Display welcome dialogs
         welcomeDialogs
         # Create directory for Pi-hole storage
-        install -d -m 755 /etc/pihole/
+        install -d -m 755 ${PI_HOLE_CONFIG_DIR}/
         # Determine available interfaces
         get_available_interfaces
         # Find interfaces and let the user choose one
