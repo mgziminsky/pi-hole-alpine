@@ -3,28 +3,11 @@
 #
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://pi-hole.github.io/graphics/Vortex/Vortex_Vertical_wordmark_darkmode.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://pi-hole.github.io/graphics/Vortex/Vortex_Vertical_wordmark_lightmode.png">
-    <img src="https://pi-hole.github.io/graphics/Vortex/Vortex_Vertical_wordmark_lightmode.png" width="168" height="270" alt="Pi-hole website">
-  </picture>
-    <br>
-    <strong>Network-wide ad blocking via your own Linux hardware</strong>
+  <img src="https://raw.githubusercontent.com/pi-hole/graphics/refs/heads/master/Vortex/vortex_with_text.svg" alt="Pi-hole website" width="168" height="270">
+  <br>
+  <strong>Network-wide ad blocking via your own Linux hardware</strong>
 </p>
 <!-- markdownlint-enable MD033 -->
-
-  This is a proper fork of the official pi-hole repo started from applying only the code fixes in [yvelon/pi-hole](https://gitlab.com/yvelon/pi-hole) to make updating and maintainence simpler.
-
-  **Alpine version: x86, x86_64, armv7l and aarch64**: This repository provides an automated script to install Pi-hole on Alpine Linux (32-bit and 64-bit) working with musl.
-
-   **Information about Pi-hole**: please check out the [Pi-hole official repository](https://github.com/pi-hole/pi-hole).
-
------
-
-## Important note
-
-This script runs exclusively on Alpine Linux.
-If you wish to install Pi-hole on another distribution, please refer to [Pi-hole's official installation](https://github.com/pi-hole/pi-hole)
 
 ## Installing on Alpine Linux
 
@@ -33,10 +16,6 @@ If you wish to install Pi-hole on another distribution, please refer to [Pi-hole
 3. Clone the current repository: `git clone https://github.com/mgziminsky/pi-hole-alpine.git`
 4. `cd pi-hole-alpine` to the cloned folder
 5. Execute the script `bash 'automated install/basic-install.sh'`
-6. During install, the user is prompted to select whether to download a precompiled binary or compile it locally.
-    Local compilation may be slow on some devices.
-    Only select downloading precompiled binaries if you trust this repository.
-    In that case, be sure to select `yes` when prompted because the default action implies local compilation.
 
 -----
 -----
@@ -60,7 +39,9 @@ The Pi-hole® is a [DNS sinkhole](https://en.wikipedia.org/wiki/DNS_Sinkhole) th
 
 Those who want to get started quickly and conveniently may install Pi-hole using the following command:
 
-### `curl -sSL https://install.pi-hole.net | bash`
+```bash
+curl -sSL https://install.pi-hole.net | bash
+```
 
 ## Alternative Install Methods
 
@@ -165,7 +146,7 @@ The [pihole](https://docs.pi-hole.net/core/pihole-command/) command has all the 
 
 Some notable features include:
 
-- [Whitelisting, Blacklisting, and Regex](https://docs.pi-hole.net/core/pihole-command/#whitelisting-blacklisting-and-regex)
+- [Allowlisting, Denylisting (fka Whitelisting, Blacklisting), and Regex](https://docs.pi-hole.net/core/pihole-command/#allowlisting-denylisting-and-regex)
 - [Debugging utility](https://docs.pi-hole.net/core/pihole-command/#debugger)
 - [Viewing the live log file](https://docs.pi-hole.net/core/pihole-command/#tail)
 - [Updating Ad Lists](https://docs.pi-hole.net/core/pihole-command/#gravity)
