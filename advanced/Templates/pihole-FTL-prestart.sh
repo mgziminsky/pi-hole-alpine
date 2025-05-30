@@ -4,6 +4,10 @@
 # shellcheck disable=SC2174
 mkdir -pm 0755 /run/pihole /var/log/pihole
 chown -R pihole:pihole /etc/pihole/ /var/log/pihole/
+
+# allow all users read version file (and use pihole -v)
+chmod 0644 /etc/pihole/versions
+
 # allow pihole to access subdirs in /etc/pihole (sets execution bit on dirs)
 find /etc/pihole/ /var/log/pihole/ -type d -exec chmod 0755 {} +
 # Set all files (except TLS-related ones) to u+rw g+r
