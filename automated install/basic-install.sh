@@ -153,6 +153,7 @@ EOM
 )
 
 # List of required packages on APK based systems
+PIHOLE_META_VERSION_APK=0.1
 PIHOLE_META_DEPS_APK=(
     bash
     bash-completion
@@ -1449,7 +1450,7 @@ install_dependent_packages() {
         fi
     # Install Alpine packages
     elif is_command apk; then
-        ${PKG_INSTALL} -q -t pihole-meta "${PIHOLE_META_DEPS_APK[@]}" &> /dev/null &&
+        ${PKG_INSTALL} -q -t "pihole-meta=$PIHOLE_META_VERSION_APK" "${PIHOLE_META_DEPS_APK[@]}" &> /dev/null &&
             printf "%b  %b %s\\n" "${OVER}" "${TICK}" "${str}"
     else
         # we cannot install the dependency package

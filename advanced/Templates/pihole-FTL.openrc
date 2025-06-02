@@ -8,7 +8,7 @@ command_user="pihole:pihole"
 supervisor=supervise-daemon
 command_args_foreground="-f"
 command_background=true
-pidfile="/run/${RC_SVCNAME}.pid"
+pidfile="/run/${RC_SVCNAME}_openrc.pid"
 extra_started_commands="reload"
 
 respawn_max=5
